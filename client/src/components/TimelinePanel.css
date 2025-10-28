@@ -1,0 +1,63 @@
+.timeline-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1 1 auto;
+  background: #020617;
+  color: #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+}
+
+.timeline-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.timeline-panel__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.timeline-panel__button {
+  background: linear-gradient(135deg, #38bdf8, #6366f1);
+  color: #020617;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.4rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.timeline-panel__button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(99, 102, 241, 0.35);
+}
+
+.timeline-panel__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.timeline-panel__body {
+  overflow: auto;
+  border-radius: 0.75rem;
+  background: #0f172a;
+  padding: 0.5rem;
+}
+
+.timeline-panel__svg {
+  min-height: 320px;
+  width: 100%;
+}
+
+.timeline-panel__grid line {
+  stroke-dasharray: 4 8;
+}
