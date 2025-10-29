@@ -1,7 +1,10 @@
 import type { SessionState } from '../types/session';
 import type { ExportSessionRequest, ElectronAPI } from '../types/global';
 
-const BRIDGE_MOCK_ENV_FLAG = 'MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK';
+const BRIDGE_MOCK_ENV_FLAGS = [
+  'VITE_MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
+  'MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
+];
 
 type EnvRecord = Record<string, string | boolean | undefined>;
 
@@ -28,10 +31,26 @@ const readEnvFlag = (flag: string): string | boolean | undefined => {
   return undefined;
 };
 
-const shouldMockBridge = (() => {
-  const value = readEnvFlag(BRIDGE_MOCK_ENV_FLAG);
+const isFlagEnabled = (flag: string): boolean => {
+  const value = readEnvFlag(flag);
   return value === 'true' || value === true;
+};
+
+const isDevelopmentRuntime = (() => {
+  const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as { env?: EnvRecord }).env : undefined;
+  if (metaEnv && 'DEV' in metaEnv) {
+    return Boolean(metaEnv.DEV);
+  }
+
+  const processEnv = (globalThis as typeof globalThis & { process?: { env?: EnvRecord } }).process?.env;
+  if (processEnv && 'NODE_ENV' in processEnv) {
+    return processEnv.NODE_ENV !== 'production';
+  }
+
+  return false;
 })();
+
+const shouldMockBridge = isDevelopmentRuntime && BRIDGE_MOCK_ENV_FLAGS.some(isFlagEnabled);
 
 const mockBridge: ElectronAPI = {
   async loadSessionState() {
@@ -52,7 +71,7 @@ const getBridge = (): ElectronAPI => {
     if (shouldMockBridge) {
       if (!hasLoggedMockWarning) {
         console.warn(
-          `Electron bridge is unavailable; falling back to a mock because ${BRIDGE_MOCK_ENV_FLAG} is enabled.`,
+          'Electron bridge is unavailable; falling back to a mock because the bridge mock flag is enabled.',
         );
         hasLoggedMockWarning = true;
       }
