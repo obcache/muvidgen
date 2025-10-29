@@ -6,45 +6,95 @@ const BRIDGE_MOCK_ENV_FLAGS = [
   'MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
 ];
 
-type EnvRecord = Record<string, string | boolean | undefined>;
+type EnvValue = string | boolean | number | undefined;
+type EnvRecord = Record<string, EnvValue>;
 
-const readEnvFlag = (flag: string): string | boolean | undefined => {
+const readFromProcessEnv = (flag: string): EnvValue => {
   const withProcess = globalThis as typeof globalThis & {
     process?: {
       env?: EnvRecord;
     };
   };
 
-  const processEnv = withProcess.process?.env;
+  return withProcess.process?.env?.[flag];
+};
 
-  if (processEnv && flag in processEnv) {
-    return processEnv[flag];
+const readFromImportMeta = (flag: string): EnvValue => {
+  try {
+    if (typeof import.meta !== 'undefined') {
+      const metaEnv = (import.meta as { env?: EnvRecord }).env;
+      return metaEnv?.[flag];
+    }
+  } catch (_error) {
+    // Accessing import.meta can throw in non-module builds; swallow and continue.
   }
 
-  if (typeof import.meta !== 'undefined') {
-    const metaEnv = (import.meta as { env?: EnvRecord }).env;
-    if (metaEnv && flag in metaEnv) {
-      return metaEnv[flag];
+  return undefined;
+};
+
+const readFromGlobal = (flag: string): EnvValue => {
+  const globalValue = (globalThis as Record<string, unknown>)[flag];
+
+  if (typeof globalValue === 'string' || typeof globalValue === 'boolean' || typeof globalValue === 'number') {
+    return globalValue;
+  }
+
+  return undefined;
+};
+
+const readEnvFlag = (flag: string): EnvValue => {
+  const sources: EnvValue[] = [readFromProcessEnv(flag), readFromImportMeta(flag), readFromGlobal(flag)];
+
+  for (const value of sources) {
+    if (value !== undefined) {
+      return value;
     }
   }
 
   return undefined;
 };
 
+const isTruthyFlagValue = (value: EnvValue): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+  }
+
+  return false;
+};
+
 const isFlagEnabled = (flag: string): boolean => {
   const value = readEnvFlag(flag);
-  return value === 'true' || value === true;
+  return isTruthyFlagValue(value);
 };
 
 const isDevelopmentRuntime = (() => {
-  const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as { env?: EnvRecord }).env : undefined;
-  if (metaEnv && 'DEV' in metaEnv) {
-    return Boolean(metaEnv.DEV);
+  const processEnvValue = readFromProcessEnv('NODE_ENV');
+  if (typeof processEnvValue === 'string') {
+    return processEnvValue !== 'production';
   }
 
-  const processEnv = (globalThis as typeof globalThis & { process?: { env?: EnvRecord } }).process?.env;
-  if (processEnv && 'NODE_ENV' in processEnv) {
-    return processEnv.NODE_ENV !== 'production';
+  const metaEnv = readFromImportMeta('MODE');
+  if (typeof metaEnv === 'string') {
+    return metaEnv !== 'production';
+  }
+
+  const metaDev = readFromImportMeta('DEV');
+  if (typeof metaDev === 'boolean') {
+    return metaDev;
+  }
+
+  if (typeof window !== 'undefined') {
+    const { hostname, protocol } = window.location;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || protocol === 'http:';
   }
 
   return false;
