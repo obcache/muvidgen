@@ -12,6 +12,11 @@ export default defineConfig({
     outDir: resolve(rootDir, '../dist'),
     emptyOutDir: true,
   },
+  resolve: {
+    alias: {
+      common: resolve(rootDir, '../common')
+    }
+  },
   server: {
     port: 5173,
   },

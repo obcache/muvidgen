@@ -32,7 +32,7 @@ const App = () => {
   const handleNotesChange = useCallback<React.ChangeEventHandler<HTMLTextAreaElement>>(
     (event) => {
       const value = event.target.value;
-      setSession((prev) => ({ ...prev, notes: value }));
+      setSession((prev: SessionState) => ({ ...prev, notes: value }));
     },
     [],
   );

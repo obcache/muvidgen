@@ -86,7 +86,10 @@ async function createWindow(): Promise<void> {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.ts'),
+      // At runtime the preload script is compiled to JavaScript and emitted
+      // to the electron output directory as `preload.js`. Point to that file
+      // so the BrowserWindow can load the actual compiled script.
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 

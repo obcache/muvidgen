@@ -1,1 +1,1 @@
-export type { SessionState } from '../../common/session';
+export type { SessionState } from 'common/session';
