@@ -59,6 +59,26 @@ ipcMain.handle('session:export', async (_event, request: ExportSessionRequest): 
   }
 });
 
+async function resolveRendererEntryPoint(): Promise<string> {
+  const candidates = [
+    path.join(__dirname, '..', 'dist', 'index.html'),
+    path.join(__dirname, '..', '..', 'dist', 'index.html'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(
+    'Renderer bundle not found. Ensure the renderer has been built before starting Electron.',
+  );
+}
+
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
     width: 1200,
@@ -70,7 +90,7 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  const indexHtml = path.join(__dirname, '../dist/index.html');
+  const indexHtml = await resolveRendererEntryPoint();
 
   try {
     await win.loadFile(indexHtml);

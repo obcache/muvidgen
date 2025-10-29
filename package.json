@@ -1,0 +1,17 @@
+{
+  "name": "muvidgen",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf dist-electron",
+    "build:electron": "npm run clean && tsc -p tsconfig.electron.json",
+    "watch:electron": "tsc -p tsconfig.electron.json --watch",
+    "start:electron": "electron ./dist-electron/electron/main.js",
+    "electron": "npm run build:electron && npm run start:electron"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}
