@@ -9,3 +9,13 @@
 5. Quit and relaunch the app; the previously saved notes should load automatically, confirming `loadSessionState` works through the preload bridge.
 6. Click **Export Session** and provide an absolute path (e.g., `/tmp/muvidgen-session.json`).
 7. Verify the export file exists and contains the JSON session payload.
+
+## Browser UI previews / Storybook
+
+The renderer can run outside of Electron (for example Storybook or static UI previews). Set the environment flag
+`VITE_MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK=true` (or `MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK=true` when booting through Node) and
+start the dev server in development mode to opt into a safe mock implementation of the Electron bridge APIs. For setups
+without a Node runner you can declare `window.MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK = true` (or the Vite-prefixed variant) in a
+bootstrap script before the bundle loads. With the flag enabled, `loadSessionState`, `saveSessionState`, and
+`exportSession` become no-ops so that UI workflows continue to function without a preload script. The mock is disabled by
+default to avoid impacting production Electron builds.
