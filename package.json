@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "npm --prefix client ci || npm --prefix client install",
     "clean": "rimraf dist-electron dist",
     "build:electron": "npm run clean && tsc -p tsconfig.electron.json",
     "build:client": "cd client && npm run build",
