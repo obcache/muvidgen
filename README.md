@@ -42,3 +42,24 @@ Launches the Electron shell by pointing at the compiled sources in `dist/electro
 3. Build everything (`npm run build`) and then open the app with `npm run electron`.
 
 These commands mirror the scripts referenced throughout the documentation and should be the primary way you interact with the Muvidgen desktop UI during development.
+
+## Seeding Workflow
+
+- Purpose: bootstrap a development ledger (journal + changelog), orchestration tool, and npm scripts for commit automation.
+- PowerShell (Windows): `powershell -ExecutionPolicy Bypass -File .\seed-dev-workflow.ps1`
+- Bash (macOS/Linux): `bash ./seed-dev-workflow.sh`
+- Notes:
+  - Add entries under `docs/dev-ledger.md` → “Entries” and set `Status: Complete` when ready.
+  - Generate message: `npm run ledger:message`
+  - Dry-run: `npm run ledger:dry`
+  - Commit and move to changelog: `npm run ledger:commit`
+
+## Notes
+
+- Vite is configured and installed only under `client/`. Do not run Vite at the repo root.
+- Running `npm install` at the repo root also installs `client/` dependencies via the `postinstall` hook.
+
+## Notes
+
+- Vite is configured and installed only under `client/`. Do not run Vite at the repo root.
+- Running `npm install` at the repo root will also install `client/` dependencies automatically via the `postinstall` hook.
