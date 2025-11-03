@@ -85,6 +85,51 @@ Rollback Strategy
 
 Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
 
+### [2025-11-03] Project Plan: Media Shuttle UI, Storyboard, and Python Renderer (Status: Planned)
+Author: dev
+
+Summary
+- Define scope and phased plan to implement audio waveform transport controls, storyboard with drag-and-drop sequencing, JSON export, and a Python/ffmpeg renderer, plus packaging with pyInstaller and Inno Setup.
+
+Impact
+- Modules: client (React UI), electron (main/preload IPC), common (types/schema), tools/python (renderer), packaging (pyInstaller/Inno Setup)
+- Risk level: Medium (cross-process integration, packaging complexity)
+
+Commands/Steps
+- Design `ProjectSchema` in `common/` and add type guards.
+- Add IPC: `audio:open`, `videos:open`, `project:saveAs`, `render:start` in main; expose via preload bridge.
+- Implement UI: audio browse + waveform (play/pause/seek), video browse + storyboard (DnD, labels, tooltips).
+- Export JSON via Save-As; wire Render to spawn Python renderer with project JSON.
+- Build Python CLI to compose MP4 via ffmpeg; package with pyInstaller (bundle ffmpeg).
+- Package Electron app and author Inno Setup script for one-click install/launch.
+
+Artifacts
+- New/updated files (anticipated):
+  - `common/project.ts` (schema/types)
+  - `electron/main.ts`, `electron/preload.ts` (IPC)
+  - `client/src/components/Waveform.tsx`, `client/src/components/Storyboard.tsx`
+  - `client/src/state/project.ts`, `client/src/utils/json.ts`
+  - `renderer/python/main.py`, `renderer/python/pyinstaller.spec`
+  - `installer/windows/setup.iss`
+
+Follow-ups
+- [ ] Define `ProjectSchema` (audio path, playhead, clips [{path,index,start,duration}], output path)
+- [ ] Extend preload + main IPC for file dialogs and render control
+- [ ] Add audio/video browse UI; persist selections in session
+- [ ] Integrate waveform lib; implement play/pause/seek
+- [ ] Implement storyboard with DnD (color-coded segments, labels, tooltips)
+- [ ] Implement Save-As to write project JSON
+- [ ] Implement Python renderer CLI (consume JSON, call ffmpeg)
+- [ ] Wire Render button to spawn packaged Python exe and stream logs
+- [ ] Package Python with pyInstaller (ship ffmpeg)
+- [ ] Package Electron app and build Inno Setup installer
+- [ ] Expand manual QA for end-to-end flow
+
+Rollback Strategy
+- Keep new IPC and UI behind additive changes; revert by removing new components and IPC handlers.
+- Python renderer remains isolated under `renderer/python/`; removal does not impact Electron UI.
+- Packaging additions (pyInstaller/Inno) can be disabled without affecting dev builds.
+
 ### [YYYY-MM-DD] Example Entry Title (Status: Draft)
 Author: dev
 
