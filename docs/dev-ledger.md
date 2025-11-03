@@ -81,6 +81,86 @@ Rollback Strategy
   - Note that `npm install` at root now installs `client/` deps via `postinstall`.
   - Mention the Electron bridge mock flags for browser-only UI.
 
+## Entries
+
+Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
+
+### [2025-11-03] Add postinstall hook for client deps (Status: Complete)
+Author: dev
+
+Summary
+- Add root `postinstall` to automatically install `client/` dependencies after `npm install` at repo root.
+
+Impact
+- Modules: package scripts
+- Risk level: Low
+
+Commands/Steps
+- Update `package.json` scripts with: `"postinstall": "npm --prefix client ci || npm --prefix client install"`.
+
+Artifacts
+- Files touched: package.json
+
+Follow-ups
+- [ ] Note in README that client deps are installed via postinstall.
+
+Rollback Strategy
+- Remove the `postinstall` script from `package.json`.
+
+### [2025-11-03] Add seed-dev-workflow.ps1 seeding script (Status: Complete)
+Author: dev
+
+Summary
+- Add PowerShell seeding script to bootstrap dev-ledger, manual QA reference, ledger tooling, and npm scripts across new repos.
+
+Impact
+- Modules: docs, tooling, package scripts
+- Risk level: Low
+
+Commands/Steps
+- Create `seed-dev-workflow.ps1` in repo root.
+- Ensure `docs/dev-ledger.md` (journal + changelog) exists.
+- Ensure `docs/manual-qa.md` references the ledger.
+- Add `tools/ledger.js` orchestration tool.
+- Add npm scripts: `ledger:message`, `ledger:dry`, `ledger:commit`.
+
+Artifacts
+- Files touched/added: seed-dev-workflow.ps1; docs/dev-ledger.md; docs/manual-qa.md; tools/ledger.js; package.json (scripts).
+
+Follow-ups
+- [ ] Optional: add Bash variant `seed-dev-workflow.sh` for non-Windows environments.
+- [ ] Document seeding workflow in README.
+
+Rollback Strategy
+- Delete `seed-dev-workflow.ps1` and `tools/ledger.js`.
+- Remove ledger scripts from `package.json`.
+- Revert `docs/manual-qa.md` reference if undesired.
+
+Example (remove after first use):
+
+### [YYYY-MM-DD] Example Entry Title (Status: Draft)
+Author: dev
+
+Summary
+- Short 1–2 line description.
+
+Impact
+- Modules: <list>
+- Risk: Low
+
+Commands/Steps
+- Step or command
+
+Follow-ups
+- [ ] Next task
+
+Rollback Strategy
+- Outline how to revert.
+
+## Changelog
+
+Committed entries are appended here automatically by the ledger tool, including commit hash and date.
+
 ## Rollback Task Template
 
 Use this when a major move may need reversing. Keep it near the entry that introduced the change.
@@ -102,4 +182,3 @@ Verification
 Restore Plan (if rollback fails)
 - Outline the plan to restore the prior state or escalate.
 ```
-
