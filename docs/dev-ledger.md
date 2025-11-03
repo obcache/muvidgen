@@ -85,7 +85,30 @@ Rollback Strategy
 
 Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
 
-### [2025-11-03] Add postinstall hook for client deps (Status: Complete)
+### [YYYY-MM-DD] Example Entry Title (Status: Draft)
+Author: dev
+
+Summary
+- Short 1–2 line description.
+
+Impact
+- Modules: <list>
+- Risk: Low
+
+Commands/Steps
+- Step or command
+
+Follow-ups
+- [ ] Next task
+
+Rollback Strategy
+- Outline how to revert.
+
+## Changelog
+
+Committed entries are appended here automatically by the ledger tool, including commit hash and date.
+
+### [2025-11-03] Add postinstall hook for client deps (Commit: 95c30cc)
 Author: dev
 
 Summary
@@ -107,7 +130,7 @@ Follow-ups
 Rollback Strategy
 - Remove the `postinstall` script from `package.json`.
 
-### [2025-11-03] Add seed-dev-workflow.ps1 seeding script (Status: Complete)
+### [2025-11-03] Add seed-dev-workflow.ps1 seeding script (Commit: 95c30cc)
 Author: dev
 
 Summary
@@ -137,29 +160,6 @@ Rollback Strategy
 - Revert `docs/manual-qa.md` reference if undesired.
 
 Example (remove after first use):
-
-### [YYYY-MM-DD] Example Entry Title (Status: Draft)
-Author: dev
-
-Summary
-- Short 1–2 line description.
-
-Impact
-- Modules: <list>
-- Risk: Low
-
-Commands/Steps
-- Step or command
-
-Follow-ups
-- [ ] Next task
-
-Rollback Strategy
-- Outline how to revert.
-
-## Changelog
-
-Committed entries are appended here automatically by the ledger tool, including commit hash and date.
 
 ## Rollback Task Template
 
