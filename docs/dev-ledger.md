@@ -1,0 +1,105 @@
+# Dev Ledger
+
+This ledger tracks mid- to high-level development progress and acts as a transactional journal/changelog. Record notable changes here even if they are not committed yet. Use it to generate follow-up or rollback tasks when we need to reproduce, revert, or replay major moves.
+
+## Purpose
+
+- Serve as a living changelog for in-flight and merged work.
+- Capture rationale, commands, and impacted areas to enable reproducibility.
+- Provide a source of truth for remediation and rollback task generation.
+
+## How To Use
+
+- Add a new entry for any meaningful change: refactors, dependency upgrades, build config changes, infra tweaks, or behavior-affecting edits.
+- Prefer small, frequent entries over large batches.
+- If changes are exploratory or uncommitted, mark the entry as "Draft"; update status when finalized.
+- For every entry, include a rollback plan or link to a rollback task list.
+
+## Entry Template
+
+```
+### [YYYY-MM-DD] Title (Status: Planned | Draft | Complete)
+Author: <name/initials>
+
+Summary
+- What changed and why in 1–2 lines.
+
+Impact
+- Affected areas/modules: <list>
+- Risk level: Low | Medium | High
+
+Commands/Steps
+- Commands executed or steps taken (copy-paste friendly).
+
+Artifacts
+- Files touched: <paths>
+- Links/tickets: <refs>
+
+Follow-ups
+- [ ] Tasks to complete or validate the change.
+
+Rollback Strategy
+- High-level approach and commands to revert.
+```
+
+## Remediation Tasks
+
+- [ ] Add Node types to root devDependencies
+  - Command: `npm i -D @types/node@^18` (or `@^20` to match your Node LTS)
+  - Verify: `npx tsc -p tsconfig.electron.json`
+  - Rationale: `tsconfig.base.json`, `tsconfig.json`, and `tsconfig.electron.json` include `types: ["node"]`.
+
+- [ ] (Optional) Add Node types to client devDependencies
+  - Command: `cd client && npm i -D @types/node@^18`
+  - Verify: `cd client && npx tsc -p tsconfig.json`
+  - Rationale: Client extends the base tsconfig which includes Node types; adding locally ensures isolation if `client/` is installed independently.
+
+- [ ] Verify postinstall installs client dependencies automatically
+  - Clean: remove `client/node_modules` (e.g., `rimraf client/node_modules`)
+  - Run: `npm install` at repo root
+  - Expect: `client/node_modules` is repopulated (root `postinstall` runs `npm --prefix client ci || install`).
+
+- [ ] Align root Vite configuration usage (pick one)
+  - Option A (recommended): Remove or archive unused root `vite.config.ts` to avoid confusion; Vite runs from `client/`.
+  - Option B: Keep root Vite config and install root devDeps: `npm i -D vite @vitejs/plugin-react`.
+  - Verify: No editor/CI warnings about missing Vite packages at root.
+
+- [ ] Validate Node and npm versions
+  - `node -v` should be >= 18 (or 20.x).
+  - `npm -v` should be >= 9.
+  - Adjust local tooling if versions are out of range.
+
+- [ ] Sanity-check TypeScript builds
+  - Root Electron: `npx tsc -p tsconfig.electron.json`
+  - Client: `cd client && npx tsc -p tsconfig.json`
+
+- [ ] Confirm dev server ports are available (optional)
+  - Vite dev: 5173; Vite preview: 4173
+  - Windows: `netstat -ano | findstr :5173` and `:4173`
+
+- [ ] Update README to reflect changes (optional)
+  - Note that `npm install` at root now installs `client/` deps via `postinstall`.
+  - Mention the Electron bridge mock flags for browser-only UI.
+
+## Rollback Task Template
+
+Use this when a major move may need reversing. Keep it near the entry that introduced the change.
+
+```
+### Rollback: <Title/ID>
+Prereqs
+- Current branch/commit: <ref>
+- Backups/snapshots: <paths or links>
+
+Steps
+- [ ] Step 1 (command)
+- [ ] Step 2 (command)
+
+Verification
+- [ ] Build/test pass: <commands>
+- [ ] Manual checks: <list>
+
+Restore Plan (if rollback fails)
+- Outline the plan to restore the prior state or escalate.
+```
+
