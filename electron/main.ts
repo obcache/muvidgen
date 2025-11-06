@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { SessionState } from '../common/session';
 import type { ExportSessionRequest } from './preload';
+import { fileURLToPath } from 'node:url';
 
 const SESSION_FILENAME = 'session.json';
 
@@ -56,6 +57,56 @@ ipcMain.handle('session:export', async (_event, request: ExportSessionRequest): 
   } catch (error) {
     console.error('[session:export] Failed to export session:', error);
     throw error;
+  }
+});
+
+ipcMain.handle('audio:open', async (): Promise<string | undefined> => {
+  const result = await dialog.showOpenDialog({
+    title: 'Select audio file',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Audio', extensions: ['wav', 'mp3', 'aac', 'flac', 'ogg', 'm4a'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return undefined;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('videos:open', async (): Promise<string[]> => {
+  const result = await dialog.showOpenDialog({
+    title: 'Select video files',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Video', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return result.filePaths;
+});
+
+ipcMain.handle('project:saveAs', async (_event, defaultPath?: string): Promise<string | undefined> => {
+  const result = await dialog.showSaveDialog({
+    title: 'Save project as JSON',
+    defaultPath,
+    filters: [{ name: 'Project JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return undefined;
+  // ensure folder exists
+  await fs.mkdir(path.dirname(result.filePath), { recursive: true });
+  return result.filePath;
+});
+
+ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<void> => {
+  // Phase 1 scaffold: validate path exists; actual process spawn will be added in Phase 5/6
+  if (!projectJsonPath || typeof projectJsonPath !== 'string') {
+    throw new Error('Invalid project JSON path.');
+  }
+  try {
+    await fs.access(projectJsonPath);
+  } catch {
+    throw new Error('Project JSON file does not exist.');
   }
 });
 

@@ -112,6 +112,18 @@ const mockBridge: ElectronAPI = {
   async exportSession() {
     // no-op
   },
+  async openAudioFile() {
+    return undefined;
+  },
+  async openVideoFiles() {
+    return [];
+  },
+  async chooseProjectSavePath() {
+    return undefined;
+  },
+  async startRender() {
+    // no-op
+  },
 };
 
 let hasLoggedMockWarning = false;
@@ -145,4 +157,20 @@ export const saveSessionState = async (state: SessionState): Promise<void> => {
 
 export const exportSession = async (request: ExportSessionRequest): Promise<void> => {
   await getBridge().exportSession(request);
+};
+
+export const openAudioFile = async (): Promise<string | undefined> => {
+  return getBridge().openAudioFile();
+};
+
+export const openVideoFiles = async (): Promise<string[]> => {
+  return getBridge().openVideoFiles();
+};
+
+export const chooseProjectSavePath = async (defaultPath?: string): Promise<string | undefined> => {
+  return getBridge().chooseProjectSavePath(defaultPath);
+};
+
+export const startRender = async (projectJsonPath: string): Promise<void> => {
+  return getBridge().startRender(projectJsonPath);
 };
