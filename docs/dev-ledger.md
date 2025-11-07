@@ -85,6 +85,51 @@ Rollback Strategy
 
 Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
 
+### [2025-11-03] Renderer Pipeline + Progress + Cancel (Status: Complete)
+Author: dev
+
+Summary
+- Implement Python renderer MVP using ffmpeg (concat videos, optional audio mux), add progress via -progress, total duration via ffprobe, and UI progress bar + log console with Cancel support.
+
+Impact
+- Modules: renderer/python, electron IPC (render:start, render:cancel, render:* events), client UI
+- Risk level: Medium (process management, platform differences)
+
+Commands/Steps
+- Add `renderer/python/main.py` with concat + mux pipeline; print total_duration_ms.
+- Electron forwards stdout to `render:log` and parses `out_time_ms` and total.
+- Client subscribes to events, renders progress bar/ETA, and can cancel.
+
+Follow-ups
+- [ ] Add percent-complete to UI based on out_time_ms / total
+- [ ] Add ffprobe bundling/override in packaged app
+
+Rollback Strategy
+- Revert IPC additions and remove renderer integration; UI falls back to stub.
+
+### [2025-11-03] Project Load/Save + Dirty-Tracking + Exit Prompts (Status: Complete)
+Author: dev
+
+Summary
+- Add Load/Save/Save As controls for project JSON, track unsaved changes, and prompt on exit to save or discard. When a render is in progress, prompt to stop render or cancel exit.
+
+Impact
+- Modules: electron (project:open, project:updateDirty, close handler), preload, client App
+- Risk level: Medium (window lifecycle, race conditions)
+
+Commands/Steps
+- Add `project:open` (with schema validation) and `project:updateDirty` handlers.
+- On close: if rendering, prompt Stop Render/Cancel; then if dirty, prompt Save/Discard/Cancel.
+- Renderer handles `project:requestSave` and responds with `project:saved`.
+
+Follow-ups
+- [ ] Persist recent projects list and show in UI
+- [ ] Add auto-save interval (opt-in)
+- [ ] Add Save Project keyboard shortcut (Ctrl+S)
+
+Rollback Strategy
+- Remove dirty/close hooks; UI Load/Save continues to function manually.
+
 ### [2025-11-03] Project Plan: Media Shuttle UI, Storyboard, and Python Renderer (Status: Planned)
 Author: dev
 

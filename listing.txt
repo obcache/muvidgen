@@ -1,0 +1,402 @@
+0000: import { useCallback, useEffect, useMemo, useState } from 'react';
+0001: import {
+0002:   exportSession,
+0003:   loadSessionState,
+0004:   saveSessionState,
+0005:   openAudioFile,
+0006:   openVideoFiles,
+0007:   chooseProjectSavePath,
+0008:   startRender,
+0009:   cancelRender,
+0010:   onRenderLog,
+0011:   onRenderProgress,
+0012:   onRenderDone,
+0013:   onRenderError,
+0014:   onRenderCancelled,
+0015:   openProject,
+0016:   updateProjectDirty,
+0017:   onProjectRequestSave,
+0018:   notifyProjectSaved,
+0019: } from './state/storage';
+0020: import type { SessionState } from './types/session';
+0021: import type { ProjectSchema } from 'common/project';
+0022: import Waveform from './components/Waveform';
+0023: import Storyboard from './components/Storyboard';
+0024: 
+0025: type LocalSession = SessionState & {
+0026:   audioPath?: string;
+0027:   videoPaths?: string[];
+0028:   projectSavePath?: string;
+0029:   playhead?: number;
+0030: };
+0031: 
+0032: const defaultState: LocalSession = { notes: '' };
+0033: 
+0034: const App = () => {
+0035:   const [session, setSession] = useState<LocalSession>(defaultState);
+0036:   const [status, setStatus] = useState<string>('');
+0037:   const [error, setError] = useState<string | null>(null);
+0038:   const [logs, setLogs] = useState<string[]>([]);
+0039:   const [renderElapsedMs, setRenderElapsedMs] = useState<number>(0);
+0040:   const [renderTotalMs, setRenderTotalMs] = useState<number>(0);
+0041:   const [isRendering, setIsRendering] = useState<boolean>(false);
+0042:   const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string>('');
+0043: 
+0044:   useEffect(() => {
+0045:     let cancelled = false;
+0046: 
+0047:     loadSessionState()
+0048:       .then((state) => {
+0049:         if (!cancelled && state) {
+0050:           setSession(state);
+0051:         }
+0052:       })
+0053:       .catch((err: unknown) => {
+0054:         if (!cancelled) {
+0055:           setError(err instanceof Error ? err.message : String(err));
+0056:         }
+0057:       });
+0058: 
+0059:     return () => {
+0060:       cancelled = true;
+0061:     };
+0062:   }, []);
+0063: 
+0064:   const handleNotesChange = useCallback<React.ChangeEventHandler<HTMLTextAreaElement>>(
+0065:     (event) => {
+0066:       const value = event.target.value;
+0067:       setSession((prev: LocalSession) => ({ ...prev, notes: value }));
+0068:     },
+0069:     [],
+0070:   );
+0071: 
+0072:   const handleSave = useCallback(async () => {
+0073:     setStatus('Saving...');
+0074:     setError(null);
+0075: 
+0076:     try {
+0077:       await saveSessionState(session);
+0078:       setStatus('Session saved.');
+0079:     } catch (err: unknown) {
+0080:       setStatus('');
+0081:       setError(err instanceof Error ? err.message : String(err));
+0082:     }
+0083:   }, [session]);
+0084: 
+0085:   const handleBrowseAudio = useCallback(async () => {
+0086:     setError(null);
+0087:     try {
+0088:       const selected = await openAudioFile();
+0089:       if (selected) {
+0090:         setSession((prev) => ({ ...prev, audioPath: selected }));
+0091:         setStatus(`Selected audio: ${selected}`);
+0092:       }
+0093:     } catch (err: unknown) {
+0094:       setStatus('');
+0095:       setError(err instanceof Error ? err.message : String(err));
+0096:     }
+0097:   }, []);
+0098: 
+0099:   useEffect(() => {
+0100:     // Subscribe to render events
+0101:     const unsubs: Array<() => void> = [];
+0102:     try {
+0103:       unsubs.push(onRenderLog((line) => setLogs((prev) => [...prev, line].slice(-500))));
+0104:       unsubs.push(onRenderProgress((d) => {
+0105:         if (typeof d.totalMs === 'number') setRenderTotalMs(d.totalMs);
+0106:         if (typeof d.outTimeMs === 'number') setRenderElapsedMs(d.outTimeMs);
+0107:       }));
+0108:       unsubs.push(onRenderDone(() => { setIsRendering(false); setStatus('Render complete.'); }));
+0109:       unsubs.push(onRenderError((msg) => { setIsRendering(false); setError(msg); }));
+0110:       unsubs.push(onRenderCancelled(() => { setIsRendering(false); setStatus('Render cancelled.'); }));
+0111:       // Save request from main on window close
+0112:       unsubs.push(onProjectRequestSave(async () => {
+0113:         try {
+0114:           let target = session.projectSavePath;
+0115:           if (!target) {
+0116:             target = await chooseProjectSavePath(undefined);
+0117:           }
+0118:           if (!target) {
+0119:             notifyProjectSaved(false);
+0120:             return;
+0121:           }
+0122:           setSession((prev) => ({ ...prev, projectSavePath: target! }));
+0123:           // Build a minimal project snapshot from current session
+0124:           const snapshotObj = {
+0125:             version: '1.0',
+0126:             audio: session.audioPath ? { path: session.audioPath } : null,
+0127:             playhead: typeof session.playhead === 'number' ? session.playhead : 0,
+0128:             clips: (session.videoPaths ?? []).map((p, index) => ({ path: p, index })),
+0129:             output: target ? { path: target } : undefined,
+0130:             metadata: {},
+0131:           } as ProjectSchema;
+0132:           await exportSession({ targetPath: target!, state: snapshotObj as unknown as SessionState });
+0133:           setLastSavedSnapshot(JSON.stringify(snapshotObj));
+0134:           await updateProjectDirty(false);
+0135:           notifyProjectSaved(true);
+0136:           setStatus(`Project saved: ${target}`);
+0137:         } catch (err) {
+0138:           notifyProjectSaved(false);
+0139:           setError(err instanceof Error ? err.message : String(err));
+0140:         }
+0141:       }));
+0142:     } catch {
+0143:       // In non-electron preview, these may throw if bridge is mocked without events
+0144:     }
+0145:     return () => { for (const u of unsubs) try { u(); } catch {} };
+0146:   }, []);
+0147: 
+0148:   const handleBrowseVideos = useCallback(async () => {
+0149:     setError(null);
+0150:     try {
+0151:       const files = await openVideoFiles();
+0152:       if (files && files.length) {
+0153:         setSession((prev) => ({ ...prev, videoPaths: files }));
+0154:         setStatus(`Selected ${files.length} video file(s).`);
+0155:       }
+0156:     } catch (err: unknown) {
+0157:       setStatus('');
+0158:       setError(err instanceof Error ? err.message : String(err));
+0159:     }
+0160:   }, []);
+0161: 
+0162:   const buildProjectSnapshot = useCallback((): ProjectSchema => ({
+0163:     version: '1.0',
+0164:     audio: session.audioPath ? { path: session.audioPath } : null,
+0165:     playhead: typeof session.playhead === 'number' ? session.playhead : 0,
+0166:     clips: (session.videoPaths ?? []).map((p, index) => ({ path: p, index })),
+0167:     output: session.projectSavePath ? { path: session.projectSavePath } : undefined,
+0168:     metadata: {},
+0169:   }), [session.audioPath, session.videoPaths, session.playhead, session.projectSavePath]);
+0170: 
+0171:   const handleSaveProjectAs = useCallback(async () => {
+0172:     setStatus('');
+0173:     setError(null);
+0174:     try {
+0175:       const chosen = await chooseProjectSavePath(session.projectSavePath);
+0176:       if (!chosen) return;
+0177:       setSession((prev) => ({ ...prev, projectSavePath: chosen }));
+0178:       const snapshot = buildProjectSnapshot();
+0179:       await exportSession({ targetPath: chosen, state: snapshot as unknown as SessionState });
+0180:       setLastSavedSnapshot(JSON.stringify(snapshot));
+0181:       await updateProjectDirty(false);
+0182:       setStatus(`Project saved: ${chosen}`);
+0183:     } catch (err: unknown) {
+0184:       setStatus('');
+0185:       setError(err instanceof Error ? err.message : String(err));
+0186:     }
+0187:   }, [session.projectSavePath, buildProjectSnapshot]);
+0188: 
+0189:   const handleSaveProject = useCallback(async () => {
+0190:     setStatus('');
+0191:     setError(null);
+0192:     try {
+0193:       let target = session.projectSavePath;
+0194:       if (!target) {
+0195:         target = await chooseProjectSavePath(undefined);
+0196:       }
+0197:       if (!target) return;
+0198:       setSession((prev) => ({ ...prev, projectSavePath: target! }));
+0199:       const snapshot = buildProjectSnapshot();
+0200:       await exportSession({ targetPath: target!, state: snapshot as unknown as SessionState });
+0201:       setLastSavedSnapshot(JSON.stringify(snapshot));
+0202:       await updateProjectDirty(false);
+0203:       setStatus(`Project saved: ${target}`);
+0204:     } catch (err: unknown) {
+0205:       setStatus('');
+0206:       setError(err instanceof Error ? err.message : String(err));
+0207:     }
+0208:   }, [session.projectSavePath, buildProjectSnapshot]);
+0209: 
+0210:   const handleLoadProject = useCallback(async () => {
+0211:     setStatus('');
+0212:     setError(null);
+0213:     try {
+0214:       const result = await openProject();
+0215:       if (!result) return;
+0216:       const { path: jsonPath, project } = result;
+0217:       const audioPath = project.audio?.path ?? undefined;
+0218:       const sortedClips = [...project.clips].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+0219:       const videoPaths = sortedClips.map((c) => String(c.path));
+0220:       const playhead = typeof project.playhead === 'number' ? project.playhead : 0;
+0221:       setSession((prev) => ({
+0222:         ...prev,
+0223:         audioPath,
+0224:         videoPaths,
+0225:         playhead,
+0226:         projectSavePath: jsonPath,
+0227:       }));
+0228:       const snapshot = {
+0229:         version: '1.0',
+0230:         audio: audioPath ? { path: audioPath } : null,
+0231:         playhead,
+0232:         clips: videoPaths.map((p, index) => ({ path: p, index })),
+0233:         output: jsonPath ? { path: jsonPath } : undefined,
+0234:         metadata: {},
+0235:       } satisfies ProjectSchema;
+0236:       setLastSavedSnapshot(JSON.stringify(snapshot));
+0237:       await updateProjectDirty(false);
+0238:       setStatus(`Loaded project: ${jsonPath}`);
+0239:     } catch (err: unknown) {
+0240:       setStatus('');
+0241:       setError(err instanceof Error ? err.message : String(err));
+0242:     }
+0243:   }, []);
+0244: 
+0245:   // Dirty tracking and autoset last-saved snapshot after save/load statuses
+0246:   useEffect(() => {
+0247:     const snapshot = JSON.stringify({
+0248:       version: '1.0',
+0249:       audio: session.audioPath ? { path: session.audioPath } : null,
+0250:       playhead: typeof session.playhead === 'number' ? session.playhead : 0,
+0251:       clips: (session.videoPaths ?? []).map((p, index) => ({ path: p, index })),
+0252:       output: session.projectSavePath ? { path: session.projectSavePath } : undefined,
+0253:       metadata: {},
+0254:     });
+0255:     const isDirty = snapshot !== lastSavedSnapshot;
+0256:     updateProjectDirty(isDirty).catch(() => void 0);
+0257:     if (status.startsWith('Project saved:') || status.startsWith('Loaded project:')) {
+0258:       setLastSavedSnapshot(snapshot);
+0259:     }
+0260:   }, [session.audioPath, session.videoPaths, session.playhead, session.projectSavePath, lastSavedSnapshot, status]);
+0261: 
+0262:    catch (err: unknown) {
+0263:       setStatus('');
+0264:       setError(err instanceof Error ? err.message : String(err));
+0265:     }
+0266:   }, []);
+0267: 
+0268:   const handleStartRender = useCallback(async () => {
+0269:     setStatus('');
+0270:     setError(null);
+0271:     try {
+0272:       const path = session.projectSavePath;
+0273:       if (!path) {
+0274:         setError('Please save the project JSON first.');
+0275:         return;
+0276:       }
+0277:       setIsRendering(true);
+0278:       await startRender(path);
+0279:       setStatus('Render started...');
+0280:     } catch (err: unknown) {
+0281:       setStatus('');
+0282:       setError(err instanceof Error ? err.message : String(err));
+0283:       setIsRendering(false);
+0284:     }
+0285:   }, [session.projectSavePath]);
+0286: 
+0287:   const handleExport = useCallback(async () => {
+0288:     const targetPath = window.prompt('Enter the destination path for the exported session file');
+0289: 
+0290:     if (!targetPath) {
+0291:       return;
+0292:     }
+0293: 
+0294:     setStatus('Exporting...');
+0295:     setError(null);
+0296: 
+0297:     try {
+0298:       await exportSession({ targetPath, state: session });
+0299:       setStatus(`Session exported to ${targetPath}.`);
+0300:     } catch (err: unknown) {
+0301:       setStatus('');
+0302:       setError(err instanceof Error ? err.message : String(err));
+0303:     }
+0304:   }, [session]);
+0305: 
+0306:   return (
+0307:     <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+0308:       <h1>MuvidGen Session</h1>
+0309:       <section style={{ margin: '1rem 0' }}>
+0310:         <h2>Audio</h2>
+0311:         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+0312:           <button type="button" onClick={handleBrowseAudio}>Browse Audio</button>
+0313:           <span style={{ color: '#666' }}>{session.audioPath ?? 'No audio selected'}</span>
+0314:         </div>
+0315:         {session.audioPath && (
+0316:           <div style={{ marginTop: '0.75rem' }}>
+0317:             <Waveform
+0318:               srcPath={session.audioPath}
+0319:               playhead={session.playhead ?? 0}
+0320:               onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
+0321:             />
+0322:           </div>
+0323:         )}
+0324:       </section>
+0325: 
+0326:       <section style={{ margin: '1rem 0' }}>
+0327:         <h2>Videos</h2>
+0328:         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+0329:           <button type="button" onClick={handleBrowseVideos}>Browse Videos</button>
+0330:           <span style={{ color: '#666' }}>{(session.videoPaths?.length ?? 0)} selected</span>
+0331:         </div>
+0332:         {(session.videoPaths?.length ?? 0) > 0 && (
+0333:           <div style={{ marginTop: '0.5rem' }}>
+0334:             <Storyboard
+0335:               paths={session.videoPaths ?? []}
+0336:               onChange={(next) => setSession((prev) => ({ ...prev, videoPaths: next }))}
+0337:             />
+0338:           </div>
+0339:         )}
+0340:       </section>
+0341: 
+0342:       <section style={{ margin: '1rem 0' }}>
+0343:         <h2>Project</h2>
+0344:         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+0345:           <button type="button" onClick={handleLoadProject}>Load Project...</button>
+0346:           <button type="button" onClick={handleSaveProject}>Save Project</button>
+0347:           <button type="button" onClick={handleSaveProjectAs}>Save Project As...</button>
+0348:           <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
+0349:         </div>
+0350:         <div style={{ marginTop: '0.5rem' }}>
+0351:           <button type="button" onClick={handleStartRender} disabled={!session.projectSavePath || isRendering}>Render</button>
+0352:           <button type="button" onClick={() => cancelRender()} disabled={!isRendering} style={{ marginLeft: '0.5rem' }}>Cancel</button>
+0353:           <button type="button" onClick={() => { setLogs([]); setRenderElapsedMs(0); setRenderTotalMs(0); }} style={{ marginLeft: '0.5rem' }}>Clear Logs</button>
+0354:           <span style={{ marginLeft: '0.75rem', color: '#666' }}>Elapsed: {Math.floor((renderElapsedMs/1000))}s</span>
+0355:           {renderTotalMs > 0 && (
+0356:             <span style={{ marginLeft: '0.75rem', color: '#666' }}>
+0357:               ETA: {Math.max(0, Math.floor((renderTotalMs - renderElapsedMs)/1000))}s
+0358:             </span>
+0359:           )}
+0360:         </div>
+0361:         {renderTotalMs > 0 && (
+0362:           <div style={{ marginTop: '0.5rem', height: 10, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
+0363:             <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs/renderTotalMs)*100)).toFixed(1)}%`, background: '#3f51b5' }} />
+0364:           </div>
+0365:         )}
+0366:         <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
+0367:           {logs.length === 0 ? (
+0368:             <div style={{ color: '#777' }}>Render logs will appear here...</div>
+0369:           ) : (
+0370:             logs.map((l, i) => (<div key={i}>{l}</div>))
+0371:           )}
+0372:         </div>
+0373:       </section>
+0374:       <label htmlFor="session-notes">Session Notes</label>
+0375:       <textarea
+0376:         id="session-notes"
+0377:         style={{ display: 'block', width: '100%', minHeight: '200px', marginTop: '0.5rem' }}
+0378:         value={String((session as any).notes ?? '')}
+0379:         onChange={handleNotesChange}
+0380:       />
+0381:       <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+0382:         <button type="button" onClick={handleSave}>
+0383:           Save Session
+0384:         </button>
+0385:         <button type="button" onClick={handleExport}>
+0386:           Export Session
+0387:         </button>
+0388:       </div>
+0389:       {status && <p style={{ color: 'green' }}>{status}</p>}
+0390:       {error && (
+0391:         <p role="alert" style={{ color: 'red' }}>
+0392:           {error}
+0393:         </p>
+0394:       )}
+0395:     </div>
+0396:   );
+0397: };
+0398: 
+0399: export default App;
+0400: 
+0401: 

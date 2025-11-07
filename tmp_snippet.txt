@@ -1,0 +1,5 @@
+<div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button type="button" onClick={handleLoadProject}>Load Project…</button>
+          <button type="button" onClick={handleSaveProjectAs}>Save Project As…</button>
+          <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
+        </div>

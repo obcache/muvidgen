@@ -2,6 +2,32 @@
 
 Note: Environment remediation tasks and a running development journal now live in `docs/dev-ledger.md`.
 
+## Project Load/Save + Dirty Tracking
+
+- Launch the app and click `Load Project...`.
+  - Choose a valid project JSON; UI should update (audio path, storyboard order, playhead, project path).
+- Modify the project (e.g., reorder a clip or change audio).
+  - Close the window; expect prompt: Save / Discard / Cancel.
+  - Choose Cancel to stay; choose Save to pick a path if there is none and write JSON; app then exits.
+- With no changes (clean state), closing should exit immediately.
+
+## Render Flow (Progress + Cancel)
+
+- Load or create a project with at least one video clip. Optionally set an audio file.
+- Click `Render`. Expect:
+  - Log lines appear in the Project log console.
+  - Progress bar fills; ETA shows if durations were probed.
+  - On success, status reads "Render complete." and process exits 0.
+- Click `Cancel` while rendering.
+  - Expect renderer termination and status "Render cancelled.".
+- Attempt to close the window while rendering.
+  - Expect prompt: Stop Render / Cancel. Choose Stop Render to terminate and continue with save prompt if dirty.
+
+Environment variables (for dev):
+- `MUVIDGEN_PYTHON` to select Python interpreter (e.g., `C:\\Python39\\python.exe`).
+- `MUVIDGEN_FFMPEG` absolute path to ffmpeg binary.
+- `MUVIDGEN_FFPROBE` absolute path to ffprobe binary.
+
 ## Electron session persistence (nodeIntegration disabled)
 
 1. Launch the Electron application with `npm run electron`.

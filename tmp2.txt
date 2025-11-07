@@ -1,0 +1,173 @@
+﻿h, project: parsed };
+});
+
+ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<void> => {
+  if (currentRenderChild) {
+    throw new Error('A render is already in progress.');
+  }
+  if (!projectJsonPath || typeof projectJsonPath !== 'string') {
+    throw new Error('Invalid project JSON path.');
+  }
+  try {
+    await fs.access(projectJsonPath);
+  } catch {
+    throw new Error('Project JSON file does not exist.');
+  }
+
+  const rendererOverride = process.env.MUVIDGEN_RENDERER; // path to exe or script
+  const pythonOverride = process.env.MUVIDGEN_PYTHON || 'python';
+
+  // Resolve default renderer script location in dev
+  const candidates = [
+    // when running from TS outDir (dist-electron/electron), go up to repo root
+    path.join(__dirname, '..', '..', 'renderer', 'python', 'main.py'),
+    // alternate relative
+    path.join(process.cwd(), 'renderer', 'python', 'main.py'),
+  ];
+
+  const rendererPath = rendererOverride ?? (await (async () => {
+    for (const c of candidates) {
+      try { await fs.access(c); return c; } catch {}
+    }
+    return undefined;
+  })());
+
+  if (!rendererPath) {
+    throw new Error('Renderer script not found. Set MUVIDGEN_RENDERER to the Python script or packaged renderer.');
+  }
+
+  const isPy = rendererPath.toLowerCase().endsWith('.py');
+  const cmd = isPy ? pythonOverride : rendererPath;
+  const args = isPy ? [rendererPath, projectJsonPath] : [projectJsonPath];
+
+  return await new Promise<void>((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: 'pipe' });
+    currentRenderChild = child;
+    let stdoutBuf = '';
+    let stderrBuf = '';
+    let totalMs = 0;
+    const flushLines = (buf: string, isErr: boolean) => {
+      const lines = buf.split(/\r?\n/);
+      // Keep last partial if not ending with newline
+      const complete = lines.slice(0, lines[lines.length - 1] === '' ? lines.length - 1 : lines.length - 1);
+      const remainder = lines[lines.length - 1] ?? '';
+      for (const line of complete) {
+        const msg = line.trimEnd();
+        if (!msg) continue;
+        if (isErr) {
+          console.error(`[renderer] ${msg}`);
+        } else {
+          console.log(`[renderer] ${msg}`);
+        }
+        // Emit log event to renderer
+        mainWindow?.webContents.send('render:log', msg);
+        // Very basic progress parsing
+        const mOut = msg.match(/^out_time_ms=(\d+)/);
+        if (mOut) {
+          const ms = Number(mOut[1]);
+          if (Number.isFinite(ms)) {
+            mainWindow?.webContents.send('render:progress', { outTimeMs: ms, totalMs });
+          }
+        }
+        const mTot = msg.match(/^total_duration_ms=(\d+)/);
+        if (mTot) {
+          const t = Number(mTot[1]);
+          if (Number.isFinite(t)) {
+            totalMs = t;
+            mainWindow?.webContents.send('render:progress', { totalMs });
+          }
+        }
+      }
+      return remainder;
+    };
+    child.stdout.on('data', (d) => {
+      stdoutBuf += String(d);
+      stdoutBuf = flushLines(stdoutBuf, false);
+    });
+    child.stderr.on('data', (d) => {
+      stderrBuf += String(d);
+      stderrBuf = flushLines(stderrBuf, true);
+    });
+    child.on('error', (err) => { currentRenderChild = null; reject(err); });
+    child.on('close', (code) => {
+      currentRenderChild = null;
+      if (code === 0) {
+        mainWindow?.webContents.send('render:done');
+        resolve();
+      } else {
+        const err = new Error(`Renderer exited with code ${code}`);
+        mainWindow?.webContents.send('render:error', String(err));
+        reject(err);
+      }
+    });
+  });
+});
+
+async function resolveRendererEntryPoint(): Promise<string> {
+  const candidates = [
+    path.join(__dirname, '..', 'dist', 'index.html'),
+    path.join(__dirname, '..', '..', 'dist', 'index.html'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(
+    'Renderer bundle not found. Ensure the renderer has been built before starting Electron.',
+  );
+}
+
+let mainWindow: BrowserWindow | null = null;
+let currentRenderChild: import('node:child_process').ChildProcess | null = null;
+
+async function createWindow(): Promise<void> {
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 900,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      // At runtime the preload script is compiled to JavaScript and emitted
+      // to the electron output directory as `preload.js`. Point to that file
+      // so the BrowserWindow can load the actual compiled script.
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  mainWindow = win;
+  const indexHtml = await resolveRendererEntryPoint();
+
+  try {
+    await win.loadFile(indexHtml);
+  } catch (error) {
+    dialog.showErrorBox('Failed to load renderer', `${error}`);
+    throw error;
+  }
+}
+
+app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    void createWindow();
+  }
+});
+
+app.on('browser-window-created', (_event, window) => {
+  window.on('closed', () => {
+    if (window === mainWindow) mainWindow = null;
+  });
+});
+

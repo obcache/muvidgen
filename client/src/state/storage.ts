@@ -124,6 +124,37 @@ const mockBridge: ElectronAPI = {
   async startRender() {
     // no-op
   },
+  async cancelRender() {
+    // no-op
+  },
+  async openProject() {
+    return undefined as any;
+  },
+  async updateProjectDirty(_dirty: boolean) {
+    // no-op
+  },
+  notifyProjectSaved(_ok: boolean) {
+    // no-op
+  },
+  onProjectRequestSave(listener) {
+    return () => void listener;
+  },
+  onRenderLog(listener) {
+    // return unsubscribe no-op
+    return () => void listener;
+  },
+  onRenderProgress(listener) {
+    return () => void listener;
+  },
+  onRenderDone(listener) {
+    return () => void listener;
+  },
+  onRenderError(listener) {
+    return () => void listener;
+  },
+  onRenderCancelled(listener) {
+    return () => void listener;
+  },
 };
 
 let hasLoggedMockWarning = false;
@@ -173,4 +204,44 @@ export const chooseProjectSavePath = async (defaultPath?: string): Promise<strin
 
 export const startRender = async (projectJsonPath: string): Promise<void> => {
   return getBridge().startRender(projectJsonPath);
+};
+
+export const cancelRender = async (): Promise<void> => {
+  return getBridge().cancelRender();
+};
+
+export const onRenderLog = (listener: (line: string) => void): (() => void) => {
+  return getBridge().onRenderLog(listener);
+};
+
+export const onRenderProgress = (listener: (data: { outTimeMs?: number; totalMs?: number }) => void): (() => void) => {
+  return getBridge().onRenderProgress(listener);
+};
+
+export const onRenderDone = (listener: () => void): (() => void) => {
+  return getBridge().onRenderDone(listener);
+};
+
+export const onRenderError = (listener: (message: string) => void): (() => void) => {
+  return getBridge().onRenderError(listener);
+};
+
+export const onRenderCancelled = (listener: () => void): (() => void) => {
+  return getBridge().onRenderCancelled(listener);
+};
+
+export const openProject = async (): Promise<{ path: string; project: import('common/project').ProjectSchema } | undefined> => {
+  return getBridge().openProject();
+};
+
+export const updateProjectDirty = async (dirty: boolean): Promise<void> => {
+  return getBridge().updateProjectDirty(dirty);
+};
+
+export const onProjectRequestSave = (listener: () => void): (() => void) => {
+  return getBridge().onProjectRequestSave(listener);
+};
+
+export const notifyProjectSaved = (ok: boolean): void => {
+  return getBridge().notifyProjectSaved(ok);
 };

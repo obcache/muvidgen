@@ -1,6 +1,6 @@
-﻿# MuvidGen Desktop
+﻿# Muvidgen Desktop UI
 
-MuvidGen is a desktop application for assembling quick social-ready videos from clips with an optional audio bed. It ships a streamlined media shuttle UI and a Python/ffmpeg renderer.
+This repository contains the Electron shell and React renderer for the Muvidgen desktop application. The project now exposes a root `package.json` so you can install the required dependencies and run the user interface locally.
 
 ## Prerequisites
 
@@ -64,68 +64,3 @@ These commands mirror the scripts referenced throughout the documentation and sh
 - Vite is configured and installed only under `client/`. Do not run Vite at the repo root.
 - Running `npm install` at the repo root will also install `client/` dependencies automatically via the `postinstall` hook.
 
-
-## Why It Exists (Gap)
-
-Most consumer tools are heavyweight NLEs or cloud services. MuvidGen fills the gap for:
-- Simple, offline composition workflows without subscriptions.
-- Quick sequencing without learning a full NLE.
-- Portable, single-installer delivery with no background services.
-
-## Scope
-
-- Local, file-based primitives
-- Waveform transport (play/pause/seek)
-- Storyboard sequencing (drag/drop, remove)
-- Project JSON load/save, dirty-tracking, save-on-exit prompt
-- Render via Python + ffmpeg (concat + optional audio mux)
-- Windows-first packaging roadmap (Inno Setup, pyInstaller)
-
-## Prerequisites (Dev)
-
-- Node.js >= 18, npm >= 9
-- Python + ffmpeg/ffprobe (set env vars if not on PATH)
-
-Install:
-
-`
-npm install
-`
-
-## Run & Build
-
-- npm run dev — build renderer + electron and start the app
-- npm run build — produce dist/ and dist-electron/
-- npm run electron — start electron with compiled assets
-
-## Features
-
-- Browse Audio, waveform playback and seeking
-- Browse Videos, drag-and-drop storyboard with color labels and tooltips
-- Load/Save/Save As Project JSON
-- Render to MP4 with logs, progress bar, ETA, and Cancel
-- Exit prompts for active render and unsaved changes
-
-## Renderer (Python + ffmpeg)
-
-- Stage 1: concat videos to H.264/yuv420p MP4
-- Stage 2: mux audio (AAC) if provided, -shortest
-- Progress via -progress pipe:1; total_duration_ms via ffprobe
-
-Env (dev):
-- MUVIDGEN_PYTHON — Python interpreter (e.g., C:\Python39\python.exe)
-- MUVIDGEN_FFMPEG — path to ffmpeg
-- MUVIDGEN_FFPROBE — path to ffprobe
-
-## Project Structure
-
-- client/ — React renderer and Vite config
-- electron/ — Electron main and preload
-- renderer/python/ — Python CLI renderer
-- dist/, dist-electron/ — build outputs
-
-## Docs & Workflow
-
-- Manual QA: docs/manual-qa.md
-- Dev ledger: docs/dev-ledger.md
-- Seeder: seed-dev-workflow.ps1 (Windows), seed-dev-workflow.sh (Bash)

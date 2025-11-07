@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   exportSession,
   loadSessionState,
@@ -260,6 +260,11 @@ const App = () => {
     }
   }, [session.audioPath, session.videoPaths, session.playhead, session.projectSavePath, lastSavedSnapshot, status]);
 
+   catch (err: unknown) {
+      setStatus('');
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
 
   const handleStartRender = useCallback(async () => {
     setStatus('');
