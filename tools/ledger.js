@@ -160,6 +160,58 @@ function moveEntriesToChangelog(md, parsed, committedEntries, commitHash) {
   return merged.join('\n');
 }
 
+function parseSemver(v) {
+  const m = String(v || '').trim().match(/^(\d+)\.(\d+)\.(\d+)(.*)?$/);
+  if (!m) return null;
+  return { major: parseInt(m[1], 10), minor: parseInt(m[2], 10), patch: parseInt(m[3], 10), tail: m[4] || '' };
+}
+
+function bumpPatch(v) {
+  const p = parseSemver(v);
+  if (!p) return null;
+  return `${p.major}.${p.minor}.${p.patch + 1}${p.tail}`;
+}
+
+function bumpVersions() {
+  const changes = [];
+  // package.json
+  const pkgPath = path.join(process.cwd(), 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const next = bumpPatch(pkg.version || '0.0.0');
+      if (next) {
+        pkg.version = next;
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        changes.push({ file: pkgPath, version: next });
+      }
+    } catch (e) {
+      console.warn('[ledger] Failed to bump package.json version:', e.message);
+    }
+  }
+
+  // installer/windows/setup.iss -> #define MyAppVersion "x.y.z"
+  const issPath = path.join(process.cwd(), 'installer', 'windows', 'setup.iss');
+  if (fs.existsSync(issPath)) {
+    try {
+      let src = fs.readFileSync(issPath, 'utf8');
+      const m = src.match(/#define\s+MyAppVersion\s+"([^"]+)"/);
+      if (m) {
+        const next = bumpPatch(m[1]);
+        if (next) {
+          src = src.replace(/(#define\s+MyAppVersion\s+")[^"]+("?)/, `$1${next}$2`);
+          fs.writeFileSync(issPath, src, 'utf8');
+          changes.push({ file: issPath, version: changes.find(c => c.file === pkgPath)?.version || next });
+        }
+      }
+    } catch (e) {
+      console.warn('[ledger] Failed to bump installer version:', e.message);
+    }
+  }
+
+  return changes;
+}
+
 function main() {
   const args = process.argv.slice(2);
   const cmd = args[0];
@@ -200,6 +252,14 @@ function main() {
     try {
       cp.execSync('git add docs/dev-ledger.md', { stdio: 'inherit' });
       cp.execSync(`git commit -m "dev-ledger: record changelog for ${hash}"`, { stdio: 'inherit', shell: true });
+      // Bump versions (package.json, installer setup.iss) and commit
+      const changed = bumpVersions();
+      if (changed.length > 0) {
+        const files = changed.map(c => c.file).map(f => f.replace(/ /g, '" "')).join(' ');
+        cp.execSync(`git add ${changed.map(c => c.file).map(f => '"' + f + '"').join(' ')}`, { stdio: 'inherit', shell: true });
+        const ver = changed.find(c => c.file.endsWith('package.json'))?.version || changed[0].version;
+        cp.execSync(`git commit -m "chore(version): bump to v${ver}"`, { stdio: 'inherit', shell: true });
+      }
       // Cleanup tmp/ledger directory if empty
       try {
         const tmpDir = path.join(process.cwd(), '.tmp', 'ledger');
@@ -230,4 +290,3 @@ function ensureTmpDir() {
   } catch {}
   return dir;
 }
-

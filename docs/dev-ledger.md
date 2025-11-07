@@ -85,6 +85,12 @@ Rollback Strategy
 
 Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
 
+### [2025-11-03] Version bump test (Status: Complete)
+Author: dev
+
+Summary
+- Minimal entry to verify automated patch version bump and installer version sync in the ledger commit workflow.
+
 ### [2025-11-03] Project Plan: Media Shuttle UI, Storyboard, and Python Renderer (Status: Planned)
 Author: dev
 
