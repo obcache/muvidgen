@@ -1,131 +1,37 @@
 ﻿# MuvidGen Desktop
 
-MuvidGen is a desktop application for assembling quick social-ready videos from clips with an optional audio bed. It ships a streamlined media shuttle UI and a Python/ffmpeg renderer.
+MuvidGen is a fast, friendly desktop app for assembling social‑ready videos from a set of clips with an optional audio bed. It focuses on simplicity: shuttle controls with a waveform, an intuitive storyboard for sequencing, and one‑click export to MP4.
 
-## Prerequisites
+## Why MuvidGen
 
-- [Node.js](https://nodejs.org/) 18 or newer
-- [npm](https://www.npmjs.com/) 9 or newer (bundled with recent Node.js releases)
+- Avoid heavyweight editors for simple compilations.
+- Work fully offline — no accounts, no uploads.
+- Install once, launch from a desktop shortcut, and create.
 
-Install dependencies once you have Node.js available:
+## What You Can Do
 
-```bash
-npm install
-```
+- Load an audio track and preview with Play/Pause and a seek slider.
+- Add multiple video files and arrange them by dragging in a color‑coded storyboard.
+- Save your project to a portable JSON file and load it later to continue.
+- Render to MP4 with a visible progress bar, ETA, and live logs.
+- Close safely: if a render is running, choose to stop or cancel; if unsaved changes exist, choose Save, Discard, or Cancel.
 
-## Available commands
+## Quick Start (User)
 
-All commands are defined in the root `package.json` file.
+1) Audio
+- Click “Browse Audio...” to select a local audio file.
 
-### `npm run dev`
+2) Videos
+- Click “Browse Videos” and choose your clips. Drag to reorder; click × to remove.
 
-Runs a one-off development cycle that builds the React renderer, transpiles the Electron process TypeScript, and then starts the Electron application against the freshly generated assets.
+3) Save and Render
+- “Save Project” (or “Save Project As…”) writes a JSON you can reopen later.
+- Click “Render” to export an MP4. Watch progress; use “Cancel” to stop.
 
-### `npm run build`
+## Availability
 
-Builds the renderer bundle with Vite and transpiles the Electron code with `tsc`. The compiled assets are written to the `dist/` directory (`dist/index.html` for the renderer and `dist/electron` for the main and preload scripts).
+- Windows desktop builds (installer) are supported. Future platforms may follow.
 
-### `npm run electron`
+## More Help
 
-Launches the Electron shell by pointing at the compiled sources in `dist/electron`. This command assumes you have already executed `npm run build` or `npm run dev` so the build artifacts exist.
-
-## Project structure
-
-- `client/` â€“ React renderer source code and Vite configuration.
-- `electron/` â€“ Electron main and preload processes written in TypeScript.
-- `dist/` â€“ Generated output created by the build scripts (ignored by git).
-
-## Running the UI locally
-
-1. Install dependencies with `npm install`.
-2. Build and launch the desktop app in one step with `npm run dev`, or
-3. Build everything (`npm run build`) and then open the app with `npm run electron`.
-
-These commands mirror the scripts referenced throughout the documentation and should be the primary way you interact with the Muvidgen desktop UI during development.
-
-## Seeding Workflow
-
-- Purpose: bootstrap a development ledger (journal + changelog), orchestration tool, and npm scripts for commit automation.
-- PowerShell (Windows): `powershell -ExecutionPolicy Bypass -File .\seed-dev-workflow.ps1`
-- Bash (macOS/Linux): `bash ./seed-dev-workflow.sh`
-- Notes:
-  - Add entries under `docs/dev-ledger.md` â†’ â€œEntriesâ€ and set `Status: Complete` when ready.
-  - Generate message: `npm run ledger:message`
-  - Dry-run: `npm run ledger:dry`
-  - Commit and move to changelog: `npm run ledger:commit`
-
-## Notes
-
-- Vite is configured and installed only under `client/`. Do not run Vite at the repo root.
-- Running `npm install` at the repo root also installs `client/` dependencies via the `postinstall` hook.
-
-## Notes
-
-- Vite is configured and installed only under `client/`. Do not run Vite at the repo root.
-- Running `npm install` at the repo root will also install `client/` dependencies automatically via the `postinstall` hook.
-
-
-## Why It Exists (Gap)
-
-Most consumer tools are heavyweight NLEs or cloud services. MuvidGen fills the gap for:
-- Simple, offline composition workflows without subscriptions.
-- Quick sequencing without learning a full NLE.
-- Portable, single-installer delivery with no background services.
-
-## Scope
-
-- Local, file-based primitives
-- Waveform transport (play/pause/seek)
-- Storyboard sequencing (drag/drop, remove)
-- Project JSON load/save, dirty-tracking, save-on-exit prompt
-- Render via Python + ffmpeg (concat + optional audio mux)
-- Windows-first packaging roadmap (Inno Setup, pyInstaller)
-
-## Prerequisites (Dev)
-
-- Node.js >= 18, npm >= 9
-- Python + ffmpeg/ffprobe (set env vars if not on PATH)
-
-Install:
-
-`
-npm install
-`
-
-## Run & Build
-
-- npm run dev — build renderer + electron and start the app
-- npm run build — produce dist/ and dist-electron/
-- npm run electron — start electron with compiled assets
-
-## Features
-
-- Browse Audio, waveform playback and seeking
-- Browse Videos, drag-and-drop storyboard with color labels and tooltips
-- Load/Save/Save As Project JSON
-- Render to MP4 with logs, progress bar, ETA, and Cancel
-- Exit prompts for active render and unsaved changes
-
-## Renderer (Python + ffmpeg)
-
-- Stage 1: concat videos to H.264/yuv420p MP4
-- Stage 2: mux audio (AAC) if provided, -shortest
-- Progress via -progress pipe:1; total_duration_ms via ffprobe
-
-Env (dev):
-- MUVIDGEN_PYTHON — Python interpreter (e.g., C:\Python39\python.exe)
-- MUVIDGEN_FFMPEG — path to ffmpeg
-- MUVIDGEN_FFPROBE — path to ffprobe
-
-## Project Structure
-
-- client/ — React renderer and Vite config
-- electron/ — Electron main and preload
-- renderer/python/ — Python CLI renderer
-- dist/, dist-electron/ — build outputs
-
-## Docs & Workflow
-
-- Manual QA: docs/manual-qa.md
-- Dev ledger: docs/dev-ledger.md
-- Seeder: seed-dev-workflow.ps1 (Windows), seed-dev-workflow.sh (Bash)
+- For installation, troubleshooting, or developer notes, see `docs/manual-qa.md`.

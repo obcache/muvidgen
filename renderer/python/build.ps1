@@ -1,0 +1,33 @@
+Param(
+  [string]$Name = "muvidgen-renderer",
+  [switch]$OneFile = $true
+)
+
+$ErrorActionPreference = 'Stop'
+function Info($m){ Write-Host "[render-build] $m" -ForegroundColor Cyan }
+
+if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
+  Write-Warning "pyinstaller not found on PATH. Install with: pip install pyinstaller"
+}
+
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$entry = Join-Path $root 'main.py'
+$distDir = Join-Path $root 'dist'
+
+Info "Entry: $entry"
+Info "Output: $distDir"
+
+$args = @('--noconfirm', '--name', $Name)
+if ($OneFile) { $args += '--onefile' }
+
+# Optionally bundle ffmpeg/ffprobe if env vars point to local binaries
+if ($env:FFMPEG_BIN) { $args += @('--add-binary', "$($env:FFMPEG_BIN);.") }
+if ($env:FFPROBE_BIN) { $args += @('--add-binary', "$($env:FFPROBE_BIN);.") }
+
+$args += $entry
+
+Info "pyinstaller $($args -join ' ')"
+pyinstaller @args
+
+Info "Done. Artifacts in $distDir"
+

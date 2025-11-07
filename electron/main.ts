@@ -165,6 +165,8 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
 
   // Resolve default renderer script location in dev
   const candidates = [
+    // packaged binary inside Electron asar/resources
+    path.join(process.resourcesPath, 'renderer', process.platform === 'win32' ? 'muvidgen-renderer.exe' : 'muvidgen-renderer'),
     // when running from TS outDir (dist-electron/electron), go up to repo root
     path.join(__dirname, '..', '..', 'renderer', 'python', 'main.py'),
     // alternate relative
@@ -185,9 +187,24 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   const isPy = rendererPath.toLowerCase().endsWith('.py');
   const cmd = isPy ? pythonOverride : rendererPath;
   const args = isPy ? [rendererPath, projectJsonPath] : [projectJsonPath];
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  // Prefer redist folder inside Electron resources for ffmpeg/ffprobe
+  const redistDir = path.join(process.resourcesPath, 'redist');
+  const ffName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const fpName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+  const redistFfmpeg = path.join(redistDir, ffName);
+  const redistFfprobe = path.join(redistDir, fpName);
+  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = redistFfmpeg;
+  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = redistFfprobe;
+  // If running a standalone packaged renderer binary, also try sibling fallback
+  if (!isPy) {
+    const base = path.dirname(rendererPath);
+    if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(base, ffName);
+    if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(base, fpName);
+  }
 
   return await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: 'pipe' });
+    const child = spawn(cmd, args, { stdio: 'pipe', env: childEnv });
     currentRenderChild = child;
     let stdoutBuf = '';
     let stderrBuf = '';
