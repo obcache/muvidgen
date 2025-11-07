@@ -96,13 +96,14 @@ function buildCommitMessage(completeEntries) {
 
 function gitCommit(message, dryRun) {
   if (dryRun) return { hash: '(dry-run)' };
-  const tmp = path.join(os.tmpdir(), `ledger-commit-${Date.now()}.txt`);
+  const tmpDir = ensureTmpDir();
+  const tmp = path.join(tmpDir, `message-${Date.now()}.txt`);
   fs.writeFileSync(tmp, message, 'utf8');
   try {
     cp.execSync('git add -A', { stdio: 'inherit' });
     cp.execSync(`git commit -F "${tmp.replace(/"/g, '""')}"`, { stdio: 'inherit', shell: true });
     const hash = cp.execSync('git rev-parse --short HEAD').toString().trim();
-    fs.unlinkSync(tmp);
+    try { fs.unlinkSync(tmp); } catch {}
     return { hash };
   } catch (err) {
     console.error('git commit failed:', err.message);
@@ -199,6 +200,14 @@ function main() {
     try {
       cp.execSync('git add docs/dev-ledger.md', { stdio: 'inherit' });
       cp.execSync(`git commit -m "dev-ledger: record changelog for ${hash}"`, { stdio: 'inherit', shell: true });
+      // Cleanup tmp/ledger directory if empty
+      try {
+        const tmpDir = path.join(process.cwd(), '.tmp', 'ledger');
+        const files = fs.existsSync(tmpDir) ? fs.readdirSync(tmpDir) : [];
+        if (files.length === 0) {
+          fs.rmdirSync(tmpDir, { recursive: true });
+        }
+      } catch {}
     } catch (err) {
       console.error('Failed to commit ledger update:', err.message);
       process.exit(1);
@@ -214,4 +223,11 @@ function main() {
 }
 
 main();
+function ensureTmpDir() {
+  const dir = path.join(process.cwd(), '.tmp', 'ledger');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+  return dir;
+}
 
