@@ -21,6 +21,7 @@ import {
 import type { SessionState } from './types/session';
 import type { ProjectSchema } from 'common/project';
 import Waveform from './components/Waveform';
+import OverviewWaveform from './components/OverviewWaveform';
 import Storyboard from './components/Storyboard';
 
 type LocalSession = SessionState & {
@@ -41,6 +42,8 @@ const App = () => {
   const [renderTotalMs, setRenderTotalMs] = useState<number>(0);
   const [isRendering, setIsRendering] = useState<boolean>(false);
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string>('');
+  const [audioDuration, setAudioDuration] = useState<number>(0);
+  const [videoDurations, setVideoDurations] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +93,39 @@ const App = () => {
       if (selected) {
         setSession((prev) => ({ ...prev, audioPath: selected }));
         setStatus(`Selected audio: ${selected}`);
+        setAudioDuration(0);
+      }
+    } catch (err: unknown) {
+      setStatus('');
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  const handleBrowseVideos = useCallback(async () => {
+    setError(null);
+    try {
+      const files = await openVideoFiles();
+      if (files && files.length) {
+        setSession((prev) => {
+          const existing = prev.videoPaths ?? [];
+          // Allow duplicates; append in the order returned by the dialog
+          const merged = existing.concat(files);
+          return { ...prev, videoPaths: merged };
+        });
+        setStatus(`Added ${files.length} video file(s).`);
+        // Probe durations for newly added files
+        files.forEach((p) => {
+          if (videoDurations[p] != null) return;
+          const v = document.createElement('video');
+          v.preload = 'metadata';
+          v.src = p.startsWith('file://') ? p : `file://${p.replace(/\\\\/g, '/')}`;
+          v.onloadedmetadata = () => {
+            setVideoDurations((m) => ({ ...m, [p]: v.duration || 0 }));
+          };
+          v.onerror = () => {
+            setVideoDurations((m) => ({ ...m, [p]: 0 }));
+          };
+        });
       }
     } catch (err: unknown) {
       setStatus('');
@@ -146,19 +182,7 @@ const App = () => {
     return () => { for (const u of unsubs) try { u(); } catch {} };
   }, []);
 
-  const handleBrowseVideos = useCallback(async () => {
-    setError(null);
-    try {
-      const files = await openVideoFiles();
-      if (files && files.length) {
-        setSession((prev) => ({ ...prev, videoPaths: files }));
-        setStatus(`Selected ${files.length} video file(s).`);
-      }
-    } catch (err: unknown) {
-      setStatus('');
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
+  
 
   const buildProjectSnapshot = useCallback((): ProjectSchema => ({
     version: '1.0',
@@ -314,7 +338,15 @@ const App = () => {
               srcPath={session.audioPath}
               playhead={session.playhead ?? 0}
               onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
+              onDurationChange={(d) => setAudioDuration(d)}
             />
+            <div style={{ marginTop: 8 }}>
+              <OverviewWaveform
+                duration={audioDuration}
+                playhead={session.playhead ?? 0}
+                onSeek={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
+              />
+            </div>
           </div>
         )}
       </section>
@@ -330,9 +362,15 @@ const App = () => {
             <Storyboard
               paths={session.videoPaths ?? []}
               onChange={(next) => setSession((prev) => ({ ...prev, videoPaths: next }))}
+              durations={videoDurations}
+              totalDuration={audioDuration || undefined}
             />
           </div>
         )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <button type="button" onClick={handleBrowseVideos}>Browse Videos</button>
+          <span style={{ color: '#666' }}>{(session.videoPaths?.length ?? 0)} selected</span>
+        </div>
       </section>
 
       <section style={{ margin: '1rem 0' }}>
@@ -359,7 +397,7 @@ const App = () => {
             <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs/renderTotalMs)*100)).toFixed(1)}%`, background: '#3f51b5' }} />
           </div>
         )}
-        <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
+        <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12, color: '#ddd' }}>
           {logs.length === 0 ? (
             <div style={{ color: '#777' }}>Render logs will appear here...</div>
           ) : (

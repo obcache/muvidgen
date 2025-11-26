@@ -3,6 +3,8 @@ import { useCallback, useMemo, useState } from 'react';
 export interface StoryboardProps {
   paths: string[];
   onChange: (next: string[]) => void;
+  durations?: Record<string, number>; // seconds per path
+  totalDuration?: number; // seconds (timeline length, e.g., audio)
 }
 
 const fileName = (p: string) => {
@@ -10,13 +12,10 @@ const fileName = (p: string) => {
   return parts[parts.length - 1] || p;
 };
 
-const colorFor = (key: string) => {
-  // Simple, stable hashing to color via HSL
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
-  return `hsl(${hue} 60% 50%)`;
-};
+const PALETTE = [
+  '#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#03A9F4', '#8BC34A', '#FF5722', '#3F51B5', '#009688', '#E91E63', '#00BCD4', '#CDDC39',
+];
+const colorFor = (_key: string, index: number) => PALETTE[index % PALETTE.length];
 
 const reorder = (arr: string[], from: number, to: number) => {
   const a = arr.slice();
@@ -25,7 +24,7 @@ const reorder = (arr: string[], from: number, to: number) => {
   return a;
 };
 
-const Storyboard = ({ paths, onChange }: StoryboardProps) => {
+const Storyboard = ({ paths, onChange, durations, totalDuration }: StoryboardProps) => {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const items = useMemo(() => paths.map((p, i) => ({ path: p, index: i })), [paths]);
@@ -72,15 +71,17 @@ const Storyboard = ({ paths, onChange }: StoryboardProps) => {
             userSelect: 'none',
             padding: '6px 28px 6px 8px',
             borderRadius: 4,
-            background: colorFor(item.path),
+            background: colorFor(item.path, item.index),
             color: 'white',
-            minWidth: 120,
-            maxWidth: 280,
+            minWidth: 80,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             position: 'relative',
             opacity: dragFrom === item.index ? 0.6 : 1,
+            // Width scale by duration if provided
+            flex: '0 0 auto',
+            width: totalDuration && durations && durations[item.path] ? `${Math.max(5, (durations[item.path]! / totalDuration) * 100)}%` : undefined,
           }}
         >
           <span style={{ fontWeight: 600 }}>{fileName(item.path)}</span>
@@ -116,4 +117,3 @@ const Storyboard = ({ paths, onChange }: StoryboardProps) => {
 };
 
 export default Storyboard;
-

@@ -1,4 +1,7 @@
-Param()
+Param(
+  [string]$RendererPath,
+  [string]$RendererName = "muvidgen-renderer"
+)
 
 $ErrorActionPreference = 'Stop'
 function Ok($m){ Write-Host "[ok] $m" -ForegroundColor Green }
@@ -6,22 +9,50 @@ function Warn($m){ Write-Host "[warn] $m" -ForegroundColor Yellow }
 function Err($m){ Write-Host "[err] $m" -ForegroundColor Red }
 
 $thisDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Split-Path -Parent $thisDir
+# repo root is two levels up from installer\windows
+$repoRoot = (Resolve-Path (Join-Path $thisDir '..\..')).Path
 
 $paths = @{
-  RendererExe = Join-Path $repoRoot 'renderer\python\dist\muvidgen-renderer.exe'
   ElectronOut = Join-Path $repoRoot 'dist\electron'
   RedistFfmpeg = Join-Path $repoRoot 'vendor\windows\redist\ffmpeg.exe'
   RedistFfprobe = Join-Path $repoRoot 'vendor\windows\redist\ffprobe.exe'
   RedistDir = Join-Path $repoRoot 'vendor\windows\redist'
 }
 
+# Resolve renderer exe path with robust fallbacks
+$rendererDist = Join-Path $repoRoot 'renderer\python\dist'
+$rendererExe = $null
+if ($RendererPath) {
+  $rp = Resolve-Path -ErrorAction SilentlyContinue $RendererPath
+  if ($rp) { $rendererExe = $rp.Path }
+} else {
+  $candidates = @(
+    (Join-Path $rendererDist ("{0}.exe" -f $RendererName)),
+    (Join-Path (Join-Path $rendererDist $RendererName) ("{0}.exe" -f $RendererName)),
+    (Join-Path $repoRoot (Join-Path 'dist' ("{0}.exe" -f $RendererName))),
+    (Join-Path $repoRoot (Join-Path 'dist' (Join-Path $RendererName ("{0}.exe" -f $RendererName))))
+  )
+  foreach ($c in $candidates) {
+    if (Test-Path $c) { $rendererExe = (Resolve-Path $c).Path; break }
+  }
+  if (-not $rendererExe -and (Test-Path $rendererDist)) {
+    # Last resort: first *.exe in dist matching name fragment
+    $probe = Get-ChildItem -Path $rendererDist -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -like "*$RendererName*.exe" } |
+      Select-Object -First 1
+    if ($probe) { $rendererExe = $probe.FullName }
+  }
+}
+
 $failed = $false
 
 Write-Host "MuvidGen Windows installer preflight" -ForegroundColor Cyan
 Write-Host "Repo root: $repoRoot"
+Write-Host ("Renderer exe: {0}" -f ($(if ($rendererExe) { $rendererExe } else { '(not found yet)' })))
+Write-Host "Electron output expected: $($paths.ElectronOut)"
+Write-Host "Redist dir: $($paths.RedistDir)"
 
-if (Test-Path $paths.RendererExe) { Ok "Renderer exe found: $($paths.RendererExe)" } else { Err "Missing renderer exe. Build with: pip install pyinstaller; powershell -File renderer\python\build.ps1"; $failed=$true }
+if ($rendererExe -and (Test-Path $rendererExe)) { Ok "Renderer exe found: $rendererExe" } else { Err "Missing renderer exe. Build with: pip install pyinstaller; powershell -File renderer\python\build.ps1 (or pass -RendererPath)"; $failed=$true }
 if (Test-Path $paths.ElectronOut) { Ok "Electron output found: $($paths.ElectronOut)" } else { Warn "Electron output not found: $($paths.ElectronOut). Build with: npm run build" }
 
 if (Test-Path $paths.RedistFfmpeg) { Ok "ffmpeg.exe present" } else { Err "Missing ffmpeg.exe in vendor\\windows\\redist"; $failed=$true }
@@ -43,4 +74,3 @@ if ($iscc) {
 }
 
 if ($failed) { exit 1 } else { Ok "Preflight checks passed"; exit 0 }
-

@@ -17,7 +17,7 @@ DIST_DIR="$ROOT_DIR/dist"
 info "Entry: $ENTRY"
 info "Output: $DIST_DIR"
 
-ARGS=(--noconfirm --name "$NAME")
+ARGS=(--noconfirm --name "$NAME" --distpath "$DIST_DIR" --workpath "$ROOT_DIR/build" --specpath "$ROOT_DIR")
 if [[ "$ONEFILE" == "1" ]]; then ARGS+=(--onefile); fi
 [[ -n "${FFMPEG_BIN:-}" ]] && ARGS+=(--add-binary "$FFMPEG_BIN:.")
 [[ -n "${FFPROBE_BIN:-}" ]] && ARGS+=(--add-binary "$FFPROBE_BIN:.")
@@ -25,7 +25,6 @@ if [[ "$ONEFILE" == "1" ]]; then ARGS+=(--onefile); fi
 ARGS+=("$ENTRY")
 
 info "pyinstaller ${ARGS[*]}"
-pyinstaller "${ARGS[@]}"
+( cd "$ROOT_DIR" && pyinstaller "${ARGS[@]}" )
 
 info "Done. Artifacts in $DIST_DIR"
-

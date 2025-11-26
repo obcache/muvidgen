@@ -4,6 +4,7 @@ export interface WaveformProps {
   srcPath: string;
   playhead?: number;
   onPlayheadChange?: (seconds: number) => void;
+  onDurationChange?: (seconds: number) => void;
 }
 
 const toFileURL = (absPath: string): string => {
@@ -20,7 +21,7 @@ const formatTime = (t: number): string => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-const Waveform = ({ srcPath, playhead, onPlayheadChange }: WaveformProps) => {
+const Waveform = ({ srcPath, playhead, onPlayheadChange, onDurationChange }: WaveformProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isPlaying, setPlaying] = useState(false);
@@ -94,10 +95,13 @@ const Waveform = ({ srcPath, playhead, onPlayheadChange }: WaveformProps) => {
     const audio = audioRef.current;
     if (!audio) return;
     setDuration(audio.duration || 0);
+    if (typeof onDurationChange === 'function') {
+      onDurationChange(audio.duration || 0);
+    }
     if (typeof playhead === 'number' && isFinite(playhead)) {
       try { audio.currentTime = playhead; } catch {}
     }
-  }, [playhead]);
+  }, [playhead, onDurationChange]);
 
   const onTimeUpdate = useCallback(() => {
     const audio = audioRef.current;
@@ -141,4 +145,3 @@ const Waveform = ({ srcPath, playhead, onPlayheadChange }: WaveformProps) => {
 };
 
 export default Waveform;
-

@@ -202,6 +202,13 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
     if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(base, ffName);
     if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(base, fpName);
   }
+  // Dev fallbacks: vendor/windows/redist and ./redist under repo
+  const devVendor = path.join(process.cwd(), 'vendor', 'windows', 'redist');
+  const devRedist = path.join(process.cwd(), 'redist');
+  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(devVendor, ffName);
+  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(devVendor, fpName);
+  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(devRedist, ffName);
+  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(devRedist, fpName);
 
   return await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: 'pipe', env: childEnv });

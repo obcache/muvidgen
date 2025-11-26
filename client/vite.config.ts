@@ -7,6 +7,7 @@ const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   root: rootDir,
+  base: './',
   plugins: [react()],
   build: {
     outDir: resolve(rootDir, '../dist'),

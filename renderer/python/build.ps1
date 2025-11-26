@@ -17,7 +17,7 @@ $distDir = Join-Path $root 'dist'
 Info "Entry: $entry"
 Info "Output: $distDir"
 
-$args = @('--noconfirm', '--name', $Name)
+$args = @('--noconfirm', '--name', $Name, '--distpath', $distDir, '--workpath', (Join-Path $root 'build'), '--specpath', $root)
 if ($OneFile) { $args += '--onefile' }
 
 # Optionally bundle ffmpeg/ffprobe if env vars point to local binaries
@@ -27,7 +27,11 @@ if ($env:FFPROBE_BIN) { $args += @('--add-binary', "$($env:FFPROBE_BIN);.") }
 $args += $entry
 
 Info "pyinstaller $($args -join ' ')"
-pyinstaller @args
+Push-Location $root
+try {
+  pyinstaller @args
+} finally {
+  Pop-Location
+}
 
 Info "Done. Artifacts in $distDir"
-
