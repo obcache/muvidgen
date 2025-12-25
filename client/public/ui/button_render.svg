@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#2a2f3a"/>
+      <stop offset="100%" stop-color="#1c2130"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="28" fill="url(#g)" stroke="#3f51b5" stroke-width="4"/>
+  <!-- Simple placeholder: play triangle inside a gear-like circle -->
+  <circle cx="128" cy="128" r="62" fill="#1a1f2b" stroke="#3f51b5" stroke-width="6"/>
+  <polygon points="110,92 170,128 110,164" fill="#8fb0ff"/>
+  <text x="128" y="212" text-anchor="middle" font-family="Segoe UI, Roboto, Arial" font-size="28" fill="#9ca3af">Render</text>
+</svg>
+

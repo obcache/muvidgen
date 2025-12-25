@@ -19,12 +19,20 @@ export interface ElectronBridge {
   exportSession: (request: ExportSessionRequest) => Promise<void>;
   openAudioFile: () => Promise<string | undefined>;
   openVideoFiles: () => Promise<string[]>;
+  readFileBuffer: (filePath: string) => Promise<Uint8Array>;
   chooseProjectSavePath: (defaultPath?: string) => Promise<string | undefined>;
   startRender: (projectJsonPath: string) => Promise<void>;
   cancelRender: () => Promise<void>;
+  chooseRenderOutput: (projectJsonPath?: string) => Promise<string | undefined>;
+  prepareRenderProject: (projectJsonPath: string, outputPath: string) => Promise<string>;
   openProject: () => Promise<{ path: string; project: ProjectSchema } | undefined>;
+  saveProject: (filePath: string, project: ProjectSchema) => Promise<void>;
   updateProjectDirty: (dirty: boolean) => Promise<void>;
   notifyProjectSaved: (ok: boolean) => void;
+  getDefaultProjectPath: () => Promise<string>;
+  loadMediaLibrary: () => Promise<import('../common/project').MediaLibraryItem[]>;
+  saveMediaLibrary: (items: import('../common/project').MediaLibraryItem[]) => Promise<void>;
+  probeMediaFile: (path: string) => Promise<Partial<import('../common/project').MediaLibraryItem>>;
   onProjectRequestSave: (listener: () => void) => () => void;
   onRenderLog: (listener: (line: string) => void) => () => void;
   onRenderProgress: (listener: (data: { outTimeMs?: number; totalMs?: number }) => void) => () => void;
@@ -39,12 +47,23 @@ const bridge: ElectronBridge = {
   exportSession: (request) => ipcRenderer.invoke('session:export', request),
   openAudioFile: () => ipcRenderer.invoke('audio:open'),
   openVideoFiles: () => ipcRenderer.invoke('videos:open'),
+  readFileBuffer: async (filePath: string) => {
+    const buf: Buffer = await ipcRenderer.invoke('file:readBuffer', filePath);
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  },
   chooseProjectSavePath: (defaultPath?: string) => ipcRenderer.invoke('project:saveAs', defaultPath),
   startRender: (projectJsonPath: string) => ipcRenderer.invoke('render:start', projectJsonPath),
   cancelRender: () => ipcRenderer.invoke('render:cancel'),
+  chooseRenderOutput: (projectJsonPath?: string) => ipcRenderer.invoke('render:chooseOutput', projectJsonPath),
+  prepareRenderProject: (projectJsonPath: string, outputPath: string) => ipcRenderer.invoke('render:prepareProject', projectJsonPath, outputPath),
   openProject: () => ipcRenderer.invoke('project:open'),
+  saveProject: (filePath: string, project: ProjectSchema) => ipcRenderer.invoke('project:save', filePath, project),
   updateProjectDirty: (dirty: boolean) => ipcRenderer.invoke('project:updateDirty', dirty),
   notifyProjectSaved: (ok: boolean) => { ipcRenderer.send('project:saved', ok); },
+  getDefaultProjectPath: () => ipcRenderer.invoke('project:defaultPath'),
+  loadMediaLibrary: () => ipcRenderer.invoke('mediaLibrary:load'),
+  saveMediaLibrary: (items: any[]) => ipcRenderer.invoke('mediaLibrary:save', items),
+  probeMediaFile: (p: string) => ipcRenderer.invoke('mediaLibrary:probe', p),
   onProjectRequestSave: (listener) => {
     const channel = 'project:requestSave';
     const handler = () => listener();

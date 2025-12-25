@@ -1,0 +1,13 @@
+:root {
+  --bg: #000000;
+  --panel: #0a0a0a;
+  --panel-muted: #050505;
+  --panel-alt: #0a0a0a;
+  --text: #ffffff;
+  --text-muted: #d0d0d0;
+  --border: #333333;
+  --accent: #ffd21e;
+  --btn-bg: #111111;
+  --btn-bg-hover: #1a1a1a;
+}
+

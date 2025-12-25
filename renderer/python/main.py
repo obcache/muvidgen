@@ -142,7 +142,9 @@ def concat_videos_to_h264(work_dir: str, clips: List[str]) -> Tuple[int, str]:
     return code, out_path
 
 
-def mux_audio_video(temp_video: str, audio_path: str, output_path: str) -> int:
+def mux_audio_video(temp_video: str, audio_path: Optional[str], output_path: str, layers: List[Dict[str, Any]]) -> int:
+    has_audio = bool(audio_path)
+    filter_complex, vlabel = build_layer_filters(layers, has_audio=has_audio)
     args = [
         "-hide_banner",
         "-y",
@@ -151,18 +153,105 @@ def mux_audio_video(temp_video: str, audio_path: str, output_path: str) -> int:
         "pipe:1",
         "-i",
         temp_video,
-        "-i",
-        audio_path,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-shortest",
-        output_path,
     ]
+    if has_audio:
+        args += ["-i", audio_path]
+    if filter_complex:
+        args += ["-filter_complex", filter_complex, "-map", vlabel]
+        if has_audio:
+            args += ["-map", "1:a"]
+    else:
+        args += ["-map", "0:v"]
+        if has_audio:
+            args += ["-map", "1:a"]
+    args += [
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+    ]
+    if has_audio:
+        args += [
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+        ]
+    args.append(output_path)
     return run_ffmpeg(args)
+
+
+def hex_to_rgb(color: str) -> str:
+    if not color:
+        return "0xFFFFFF"
+    c = color.strip()
+    if c.startswith("#"):
+        c = c[1:]
+    if len(c) == 3:
+        c = "".join([ch * 2 for ch in c])
+    if len(c) != 6:
+        return "0xFFFFFF"
+    return "0x" + c.upper()
+
+
+def escape_text(txt: str) -> str:
+    return txt.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool) -> Tuple[Optional[str], str]:
+    """Return (filter_complex, video_label)"""
+    if not layers:
+        return None, "[0:v]"
+
+    filter_parts: List[str] = []
+    current_v = "[0:v]"
+
+    spec_layers = [l for l in layers if l.get("type") == "spectrograph"]
+    if spec_layers and has_audio:
+        split = f"[1:a]asplit={len(spec_layers)}" + "".join([f"[as{idx}]" for idx in range(len(spec_layers))])
+        filter_parts.append(split)
+
+    spec_idx = 0
+    for idx, layer in enumerate(layers):
+        lid = idx + 1
+        if layer.get("type") == "spectrograph":
+            if not has_audio:
+                continue
+            mode = layer.get("mode") or "bar"
+            x = float(layer.get("x", 0) or 0)
+            y = float(layer.get("y", 0) or 0)
+            spec_tag = f"[spec{idx}]"
+            if mode == "line":
+                filter_parts.append(f"[as{spec_idx}]showfreqs=mode=line:ascale=log:win_size=2048:size=640x200{spec_tag}")
+            elif mode == "dots":
+                filter_parts.append(f"[as{spec_idx}]showfreqs=mode=dot:ascale=log:win_size=2048:size=640x200{spec_tag}")
+            elif mode == "solid":
+                filter_parts.append(f"[as{spec_idx}]showspectrum=s=640x200:mode=combined:color=intensity:scale=log:win_func=hann{spec_tag}")
+            else:
+                filter_parts.append(f"[as{spec_idx}]showspectrum=s=640x200:mode=separate:color=intensity:scale=log:win_func=hann{spec_tag}")
+            filter_parts.append(
+                f"{current_v}{spec_tag}overlay=x=W*{x}:y=H*{y}:format=auto[v{lid}]"
+            )
+            current_v = f"[v{lid}]"
+            spec_idx += 1
+        elif layer.get("type") == "text":
+            text = escape_text(layer.get("text") or "Text")
+            color = hex_to_rgb(layer.get("color") or "#ffffff")
+            font = escape_text(layer.get("font") or "Segoe UI")
+            fontsize = int(layer.get("fontSize") or 12)
+            x = float(layer.get("x", 0) or 0)
+            y = float(layer.get("y", 0) or 0)
+            outline_color = hex_to_rgb(layer.get("outlineColor") or "#000000")
+            outline_width = max(0, int(layer.get("outlineWidth") or 0))
+            shadow_color = hex_to_rgb(layer.get("shadowColor") or "#000000")
+            shadow_distance = int(layer.get("shadowDistance") or 0)
+            filter_parts.append(
+                f"{current_v}drawtext=text='{text}':fontcolor={color}:fontsize={fontsize}:font='{font}':x=W*{x}:y=H*{y}:bordercolor={outline_color}:borderw={outline_width}:shadowcolor={shadow_color}@0.6:shadowx={shadow_distance}:shadowy={shadow_distance}[v{lid}]"
+            )
+            current_v = f"[v{lid}]"
+
+    return ";".join(filter_parts), current_v or "[0:v]"
 
 
 def ffprobe_duration_ms(path: str) -> Optional[int]:
@@ -209,6 +298,7 @@ def main(argv: List[str]) -> int:
     audio = (project.get("audio") or {}).get("path")
     clips = [c.get("path") for c in (project.get("clips") or []) if isinstance(c, dict) and c.get("path")]
     output = (project.get("output") or {}).get("path")
+    layers = project.get("layers") or []
 
     print("[renderer] Loaded project")
     print(f"  audio: {audio or 'none'}")
@@ -216,6 +306,7 @@ def main(argv: List[str]) -> int:
     for idx, p in enumerate(clips):
         print(f"    - index={idx} path={p}")
     print(f"  output: {output or '(not specified)'}")
+    print(f"  layers: {len(layers)}")
 
     if not clips:
         eprint("[renderer] No clips provided; nothing to render.")
@@ -254,13 +345,13 @@ def main(argv: List[str]) -> int:
         eprint(f"[renderer] Concat stage failed with code {code}")
         return code
 
-    if audio:
-        code = mux_audio_video(tmp_video, audio, output)
+    if audio or layers:
+        code = mux_audio_video(tmp_video, audio, output, layers)
         if code != 0:
             eprint(f"[renderer] Mux stage failed with code {code}")
             return code
     else:
-        # No audio: move temp video to output
+        # No audio/layers: move temp video to output
         try:
             if os.path.abspath(tmp_video) != os.path.abspath(output):
                 os.replace(tmp_video, output)

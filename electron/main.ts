@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { SessionState } from '../common/session';
 import type { ExportSessionRequest } from './preload';
 import { isProjectSchema } from '../common/project';
+import type { MediaLibraryItem } from '../common/project';
 import { spawn } from 'node:child_process';
 
 const SESSION_FILENAME = 'session.json';
@@ -109,6 +110,18 @@ ipcMain.handle('videos:open', async (): Promise<string[]> => {
   return result.filePaths;
 });
 
+ipcMain.handle('file:readBuffer', async (_event, filePath: string): Promise<Buffer> => {
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Invalid file path');
+  }
+  try {
+    return await fs.readFile(filePath);
+  } catch (err) {
+    console.error('[file:readBuffer] Failed to read', filePath, err);
+    throw err;
+  }
+});
+
 ipcMain.handle('project:saveAs', async (_event, defaultPath?: string): Promise<string | undefined> => {
   const result = await dialog.showSaveDialog({
     title: 'Save project as JSON',
@@ -141,6 +154,18 @@ ipcMain.handle('project:open', async (): Promise<{ path: string; project: unknow
     throw new Error('Selected file is not a valid MuvidGen project JSON.');
   }
   return { path: filePath, project: parsed };
+});
+
+ipcMain.handle('project:save', async (_event, filePath: string, project: unknown): Promise<void> => {
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Invalid project path.');
+  }
+  if (!isProjectSchema(project)) {
+    throw new Error('Invalid project payload.');
+  }
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const payload = JSON.stringify(project, null, 2);
+  await fs.writeFile(filePath, payload, 'utf-8');
 });
 
 ipcMain.handle('project:updateDirty', async (_event, dirty: boolean): Promise<void> => {
@@ -194,21 +219,57 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   const fpName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
   const redistFfmpeg = path.join(redistDir, ffName);
   const redistFfprobe = path.join(redistDir, fpName);
-  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = redistFfmpeg;
-  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = redistFfprobe;
+  try {
+    await fs.access(redistFfmpeg);
+    if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = redistFfmpeg;
+  } catch {}
+  try {
+    await fs.access(redistFfprobe);
+    if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = redistFfprobe;
+  } catch {}
   // If running a standalone packaged renderer binary, also try sibling fallback
   if (!isPy) {
     const base = path.dirname(rendererPath);
-    if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(base, ffName);
-    if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(base, fpName);
+    const sibFfmpeg = path.join(base, ffName);
+    const sibFfprobe = path.join(base, fpName);
+    try {
+      await fs.access(sibFfmpeg);
+      if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = sibFfmpeg;
+    } catch {}
+    try {
+      await fs.access(sibFfprobe);
+      if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = sibFfprobe;
+    } catch {}
   }
-  // Dev fallbacks: vendor/windows/redist and ./redist under repo
-  const devVendor = path.join(process.cwd(), 'vendor', 'windows', 'redist');
-  const devRedist = path.join(process.cwd(), 'redist');
-  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(devVendor, ffName);
-  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(devVendor, fpName);
-  if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = path.join(devRedist, ffName);
-  if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = path.join(devRedist, fpName);
+  // Dev fallbacks: vendor\\windows\\redist and local .\\redist under repo root
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  const devBases = [
+    path.join(repoRoot, 'vendor', 'windows', 'redist'),
+    path.join(process.cwd(), 'vendor', 'windows', 'redist'),
+    path.join(repoRoot, 'redist'),
+    path.join(process.cwd(), 'redist'),
+  ];
+  for (const b of devBases) {
+    try {
+      if (!childEnv.MUVIDGEN_FFMPEG) {
+        const p = path.join(b, ffName);
+        await fs.access(p);
+        childEnv.MUVIDGEN_FFMPEG = p;
+      }
+      if (!childEnv.MUVIDGEN_FFPROBE) {
+        const p = path.join(b, fpName);
+        await fs.access(p);
+        childEnv.MUVIDGEN_FFPROBE = p;
+      }
+    } catch {}
+  }
+
+  // Emit diagnostic of resolved tools
+  try {
+    const msg = `Using ffmpeg: ${childEnv.MUVIDGEN_FFMPEG ?? '(PATH)'}; ffprobe: ${childEnv.MUVIDGEN_FFPROBE ?? '(PATH)'}`;
+    console.log('[render]', msg);
+    mainWindow?.webContents.send('render:log', msg);
+  } catch {}
 
   return await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: 'pipe', env: childEnv });
@@ -423,4 +484,123 @@ app.on('browser-window-created', (_event, window) => {
       // swallow and keep window open
     }
   });
+});
+ipcMain.handle('project:defaultPath', async (): Promise<string> => {
+  const docs = app.getPath('documents');
+  const baseDir = path.join(docs, 'MuvidGen', 'Projects');
+  await fs.mkdir(baseDir, { recursive: true });
+  const ts = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
+  return path.join(baseDir, name);
+});
+
+ipcMain.handle('render:chooseOutput', async (_event, projectJsonPath?: string): Promise<string | undefined> => {
+  // Suggest <project>_render.mp4 next to the project JSON, or fall back to Documents
+  let defaultPath: string | undefined;
+  try {
+    if (projectJsonPath) {
+      const root = projectJsonPath.replace(/\.[^\.]+$/, '');
+      defaultPath = `${root}_render.mp4`;
+    }
+  } catch {}
+  if (!defaultPath) {
+    const docs = app.getPath('documents');
+    await fs.mkdir(path.join(docs, 'MuvidGen', 'Renders'), { recursive: true });
+    defaultPath = path.join(docs, 'MuvidGen', 'Renders', 'render.mp4');
+  }
+  const result = await dialog.showSaveDialog({
+    title: 'Choose output video file',
+    defaultPath,
+    filters: [{ name: 'MP4 Video', extensions: ['mp4'] }],
+  });
+  if (result.canceled || !result.filePath) return undefined;
+  await fs.mkdir(path.dirname(result.filePath), { recursive: true });
+  return result.filePath;
+});
+
+ipcMain.handle('render:prepareProject', async (_event, projectJsonPath: string, outputPath: string): Promise<string> => {
+  const dir = path.dirname(projectJsonPath);
+  const work = path.join(dir, '.muvidgen');
+  await fs.mkdir(work, { recursive: true });
+  const tmpPath = path.join(work, 'render.json');
+  const raw = await fs.readFile(projectJsonPath, 'utf-8');
+  let json: any;
+  try { json = JSON.parse(raw); } catch { throw new Error('Project JSON is invalid.'); }
+  if (!json || typeof json !== 'object') throw new Error('Project JSON is invalid.');
+  json.output = { path: outputPath };
+  await fs.writeFile(tmpPath, JSON.stringify(json, null, 2), 'utf-8');
+  return tmpPath;
+});
+
+const mediaLibraryPath = () => path.join(app.getPath('userData'), 'library.json');
+
+ipcMain.handle('mediaLibrary:load', async (): Promise<MediaLibraryItem[]> => {
+  try {
+    const p = mediaLibraryPath();
+    const raw = await fs.readFile(p, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as MediaLibraryItem[];
+    return [];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+});
+
+ipcMain.handle('mediaLibrary:save', async (_event, items: MediaLibraryItem[]): Promise<void> => {
+  const p = mediaLibraryPath();
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, JSON.stringify(items ?? [], null, 2), 'utf-8');
+});
+
+ipcMain.handle('mediaLibrary:probe', async (_event, filePath: string): Promise<Partial<MediaLibraryItem>> => {
+  if (!filePath) throw new Error('No file path');
+  const ffprobePath = await (async () => {
+    const ffName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+    const candidates = [
+      process.env.MUVIDGEN_FFPROBE,
+      path.join(process.resourcesPath, 'redist', ffName),
+      path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'windows', 'redist', ffName),
+      path.join(process.cwd(), 'vendor', 'windows', 'redist', ffName),
+    ].filter(Boolean) as string[];
+    for (const c of candidates) {
+      try { await fs.access(c); return c; } catch {}
+    }
+    return 'ffprobe';
+  })();
+
+  const runProbe = () => new Promise<any>((resolve, reject) => {
+    const args = ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-show_format', filePath];
+    const proc = spawn(ffprobePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += String(d); });
+    proc.stderr.on('data', () => {});
+    proc.on('close', (code) => {
+      if (code === 0) {
+        try { resolve(JSON.parse(out)); } catch (err) { reject(err); }
+      } else {
+        reject(new Error('ffprobe failed'));
+      }
+    });
+    proc.on('error', reject);
+  });
+
+  try {
+    const data = await runProbe();
+    const fmt = data?.format ?? {};
+    const streams = Array.isArray(data?.streams) ? data.streams : [];
+    const v = streams.find((s: any) => s.codec_type === 'video');
+    const a = streams.find((s: any) => s.codec_type === 'audio');
+    return {
+      duration: fmt?.duration ? Number(fmt.duration) : undefined,
+      videoCodec: v?.codec_name,
+      audioCodec: a?.codec_name,
+      audioChannels: a?.channels ? Number(a.channels) : undefined,
+      width: v?.width ? Number(v.width) : undefined,
+      height: v?.height ? Number(v.height) : undefined,
+    };
+  } catch {
+    return {};
+  }
 });

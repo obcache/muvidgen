@@ -153,6 +153,29 @@ Rollback Strategy
 
 Committed entries are appended here automatically by the ledger tool, including commit hash and date.
 
+### [2025-11-07] Icon Sidebar, Overview Waveform & Render Prep APIs (Commit: 663a2b4)
+Author: dev
+
+Summary
+- Rebuilt the client shell with an icon-driven sidebar, added a static overview waveform + external playhead control, refreshed storyboard visuals, wired render-prep/output IPC, restored project load/save + render flows, and validated Windows redist ffmpeg/ffprobe via successful render.
+
+Impact
+- Modules: `client/src/App.tsx`, `client/src/components/{Waveform,Storyboard,IconButton}.tsx`, `client/src/styles.css`, `client/src/state/storage.ts`, `client/src/types/global.d.ts`, `electron/{main,preload}.ts`, `client/public/ui/`, `design/`, installer assets.
+- Risk level: Medium (UI refactor + IPC surface).
+
+Commands/Steps
+- Added sidebar icon buttons and overview/live waveforms; refreshed storyboard visuals and storage bridge; threaded render prep/output dialogs; restored project load/save/render handlers.
+- Ran `npx tsc -p tsconfig.electron.json` and `cd client && npm run build`; rendered successfully using `vendor/windows/redist` ffmpeg/ffprobe.
+
+Artifacts
+- Key files: `client/src/App.tsx`, `client/src/components/{Storyboard,Waveform,OverviewWaveform,IconButton,VolumeSlider}.tsx`, `client/src/state/storage.ts`, `client/src/types/global.d.ts`, `electron/{main,preload}.ts`, `docs/dev-ledger.md`.
+
+Follow-ups
+- [ ] Re-test installer packaging with bundled redist ffmpeg/ffprobe.
+
+Rollback Strategy
+- Revert the affected files to `origin/main` and remove added assets if the sidebar/overview changes need to be dropped.
+
 ### [2025-11-03] Add postinstall hook for client deps (Commit: 95c30cc)
 Author: dev
 

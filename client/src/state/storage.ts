@@ -1,5 +1,7 @@
 import type { SessionState } from '../types/session';
 import type { ExportSessionRequest, ElectronAPI } from '../types/global';
+import type { ProjectSchema } from 'common/project';
+import type { MediaLibraryItem } from 'common/project';
 
 const BRIDGE_MOCK_ENV_FLAGS = [
   'VITE_MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
@@ -118,6 +120,9 @@ const mockBridge: ElectronAPI = {
   async openVideoFiles() {
     return [];
   },
+  async readFileBuffer() {
+    return new Uint8Array();
+  },
   async chooseProjectSavePath() {
     return undefined;
   },
@@ -127,14 +132,39 @@ const mockBridge: ElectronAPI = {
   async cancelRender() {
     // no-op
   },
+  async chooseRenderOutput() {
+    return undefined;
+  },
+  async prepareRenderProject(projectJsonPath: string) {
+    return projectJsonPath;
+  },
+  async getDefaultProjectPath() {
+    const docs = 'C:/Users/Public/Documents';
+    const ts = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
+    return `${docs}/MuvidGen/Projects/${name}`;
+  },
   async openProject() {
     return undefined as any;
+  },
+  async saveProject() {
+    // no-op
   },
   async updateProjectDirty(_dirty: boolean) {
     // no-op
   },
   notifyProjectSaved(_ok: boolean) {
     // no-op
+  },
+  async loadMediaLibrary() {
+    return [];
+  },
+  async saveMediaLibrary(_items) {
+    // no-op
+  },
+  async probeMediaFile(_path: string) {
+    return {};
   },
   onProjectRequestSave(listener) {
     return () => void listener;
@@ -198,6 +228,19 @@ export const openVideoFiles = async (): Promise<string[]> => {
   return getBridge().openVideoFiles();
 };
 
+export const readFileBuffer = async (filePath: string): Promise<Uint8Array> => {
+  const res = await getBridge().readFileBuffer(filePath);
+  if (res instanceof Uint8Array) return res;
+  if (ArrayBuffer.isView(res as any)) {
+    const view = res as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+  if (res && typeof (res as any).byteLength === 'number') {
+    return new Uint8Array(res as ArrayBuffer);
+  }
+  return new Uint8Array();
+};
+
 export const chooseProjectSavePath = async (defaultPath?: string): Promise<string | undefined> => {
   return getBridge().chooseProjectSavePath(defaultPath);
 };
@@ -208,6 +251,14 @@ export const startRender = async (projectJsonPath: string): Promise<void> => {
 
 export const cancelRender = async (): Promise<void> => {
   return getBridge().cancelRender();
+};
+
+export const chooseRenderOutput = async (projectJsonPath?: string): Promise<string | undefined> => {
+  return getBridge().chooseRenderOutput(projectJsonPath);
+};
+
+export const prepareRenderProject = async (projectJsonPath: string, outputPath: string): Promise<string> => {
+  return getBridge().prepareRenderProject(projectJsonPath, outputPath);
 };
 
 export const onRenderLog = (listener: (line: string) => void): (() => void) => {
@@ -244,4 +295,24 @@ export const onProjectRequestSave = (listener: () => void): (() => void) => {
 
 export const notifyProjectSaved = (ok: boolean): void => {
   return getBridge().notifyProjectSaved(ok);
+};
+
+export const getDefaultProjectPath = async (): Promise<string> => {
+  return getBridge().getDefaultProjectPath();
+};
+
+export const saveProject = async (filePath: string, project: ProjectSchema): Promise<void> => {
+  return getBridge().saveProject(filePath, project);
+};
+
+export const loadMediaLibrary = async (): Promise<MediaLibraryItem[]> => {
+  return getBridge().loadMediaLibrary();
+};
+
+export const saveMediaLibrary = async (items: MediaLibraryItem[]): Promise<void> => {
+  return getBridge().saveMediaLibrary(items);
+};
+
+export const probeMediaFile = async (path: string): Promise<Partial<MediaLibraryItem>> => {
+  return getBridge().probeMediaFile(path);
 };
