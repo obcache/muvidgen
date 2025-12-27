@@ -116,7 +116,7 @@ const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead,
       try { analyser?.disconnect(); } catch {}
       try { ctx?.close(); } catch {}
     };
-  }, [src]);
+  }, [src, hideCanvas]);
 
   // Sync external playhead when metadata is ready
   const onLoadedMetadata = useCallback(() => {
@@ -164,13 +164,6 @@ const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead,
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const nextVol = Math.min(1, Math.max(0, volume));
-    audio.volume = nextVol;
-  }, [volume]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
     const target = typeof playhead === 'number' && isFinite(playhead) ? playhead : 0;
     const cur = audio.currentTime || 0;
     if (!Number.isFinite(target)) return;
@@ -183,6 +176,13 @@ const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead,
       setTimeout(() => { syncingRef.current = false; }, 0);
     }
   }, [playhead]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const nextVol = Math.min(1, Math.max(0, volume));
+    audio.volume = nextVol;
+  }, [volume]);
 
   useEffect(() => {
     const a = audioRef.current;

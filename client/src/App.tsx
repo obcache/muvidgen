@@ -46,9 +46,10 @@ type LocalSession = SessionState & {
   projectSavePath?: string;
   playhead?: number;
   layers?: LayerConfig[];
+  theme?: Theme;
 };
 
-const defaultState: LocalSession = { notes: '', playhead: 0 };
+const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark' };
 
 const App = () => {
   const [session, setSession] = useState<LocalSession>(defaultState);
@@ -110,6 +111,17 @@ const App = () => {
     } catch {
       return rel;
     }
+  };
+  const themedIcon = (rel: string) => {
+    if (theme === 'light') {
+      const dot = rel.lastIndexOf('.');
+      if (dot > 0) {
+        const base = rel.slice(0, dot);
+        const ext = rel.slice(dot);
+        return `${base}-light${ext}`;
+      }
+    }
+    return rel;
   };
   const PillIconButton = ({ icon, label, ...rest }: { icon: string; label: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button className="pill-btn" type="button" {...rest}>
@@ -188,6 +200,18 @@ const App = () => {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  // Sync theme from session load
+  useEffect(() => {
+    if (session.theme === 'light' || session.theme === 'dark') {
+      setThemeChoice(session.theme);
+    }
+  }, [session.theme]);
+
+  // Persist theme into session for project-level saves
+  useEffect(() => {
+    setSession((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
+  }, [theme]);
 
   useEffect(() => {
     // Reset zoom/scroll when audio loads
@@ -313,12 +337,15 @@ const App = () => {
     });
     const audio = session.audioPath ? { path: session.audioPath } : null;
     const playhead = typeof session.playhead === 'number' && Number.isFinite(session.playhead) ? session.playhead : 0;
+    const metadata: Record<string, unknown> = {};
+    if (session.theme) metadata.theme = session.theme;
     return {
       version: '1.0',
       audio,
       playhead,
       clips,
       layers: session.layers ?? [],
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     };
   }, [session.audioPath, session.playhead, session.videoPaths, session.layers, videoDurations]);
 
@@ -810,104 +837,92 @@ const App = () => {
   }, [renderPreviewFrame]);
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>MuvidGen Session</h1>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          Theme
-          <select
-            value={theme}
-            onChange={(e) => {
-              const next = e.target.value === 'light' ? 'light' : 'dark';
-              setThemeChoice(next);
-            }}
-          >
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </label>
-      </header>
+    <div style={{ padding: '1.5rem' }}>
       <div className="grid">
-        {/* Audio Row */}
-        <div className="right">
-            <div className="section-header">
-              <h2 style={{ margin: 0 }}>AUDIO</h2>
-              <button className="pill-btn" type="button" onClick={() => { setTimelineZoom((z) => Math.max(0.25, z / 2)); setTimelineScroll(0); }}>
-                <img className="pill-btn__img" src={assetHref('ui/icon-zoom-minus.png')} alt="" />
-                <span className="pill-btn__label">Zoom Out</span>
+        {/* Preview Row */}
+        <div className="right section-block">
+          <div className="section-header">
+            <h2 style={{ margin: 0 }}>PREVIEW</h2>
+            <div style={{ marginLeft: 'auto' }}>
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('preview')} aria-label="Toggle preview">
+                <img src={assetHref(themedIcon(collapsed.preview ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.preview ? 'Expand' : 'Collapse'} />
               </button>
-              <span className="muted" style={{ minWidth: 60, textAlign: 'center' }}>{Math.round(timelineZoom * 100)}%</span>
-              <button className="pill-btn" type="button" onClick={() => { setTimelineZoom((z) => Math.min(8, z * 2)); setTimelineScroll(0); }}>
-                <img className="pill-btn__img" src={assetHref('ui/icon-zoom-plus.png')} alt="" />
-                <span className="pill-btn__label">Zoom In</span>
-              </button>
-              <button className="pill-btn" type="button" onClick={() => { setTimelineZoom(1); setTimelineScroll(0); }}>
-                <img className="pill-btn__img" src={assetHref('ui/icon-sliders.png')} alt="" />
-                <span className="pill-btn__label">Fit to Audio</span>
-              </button>
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <VolumeSlider value={volume} onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))} width={180} />
-                <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle audio">
-                  {collapsed.audio ? '▾' : '▴'}
-                </button>
-              </div>
             </div>
-            {!collapsed.audio && (
-              <div className="panel" style={{ marginTop: 0, padding: 0, position: 'relative', overflow: 'hidden' }}>
-                <OverviewWaveform
-                  duration={audioDuration}
-                  playhead={session.playhead ?? 0}
-                  onSeek={(t: number) => setSession((prev) => ({ ...prev, playhead: t }))}
-                  peaks={overviewPeaks}
-                  hasAudio={!!session.audioPath}
-                  zoom={timelineZoom}
-                  scroll={timelineScroll}
-                />
-                <div style={{ position: 'absolute', left: 8, top: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <button className="pill-btn" type="button" title="Load Audio" aria-label="Load Audio" onClick={handleBrowseAudio}>
-                    <img className="pill-btn__img" src={assetHref('ui/icon-audio-load.png')} alt="" />
-                    <span className="pill-btn__label">Audio</span>
-                  </button>
-                  <button className="pill-btn" type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
-                    <img className="pill-btn__img" src={assetHref(isPlaying ? 'ui/icon-audio-pause.png' : 'ui/icon-audio-play.png')} alt="" />
-                    <span className="pill-btn__label">{isPlaying ? 'Pause' : 'Play'}</span>
-                  </button>
-                  <div style={{ color: '#e5e7eb', fontSize: 12, marginTop: 4 }}>
-                    {Math.floor(session.playhead ?? 0)}s / {Math.floor(audioDuration)}s
-                  </div>
+          </div>
+          {!collapsed.preview && (
+            <div className="section-body" style={{ padding: 0 }}>
+              <canvas ref={previewCanvasRef} style={{ width: '100%', height: 320, display: 'block', borderRadius: 8, background: '#0b0f16' }} />
+            </div>
+          )}
+        </div>
+
+        {/* Audio Row */}
+        <div className="right section-block">
+          <div className="section-header">
+            <h2 style={{ margin: 0 }}>AUDIO</h2>
+            <button className="pill-btn" type="button" onClick={() => { setTimelineZoom((z) => Math.max(0.25, z / 2)); setTimelineScroll(0); }}>
+              <img className="pill-btn__img" src={assetHref('ui/icon-zoom-minus.png')} alt="" />
+              <span className="pill-btn__label">Zoom Out</span>
+            </button>
+            <span className="muted" style={{ minWidth: 60, textAlign: 'center' }}>{Math.round(timelineZoom * 100)}%</span>
+            <button className="pill-btn" type="button" onClick={() => { setTimelineZoom((z) => Math.min(8, z * 2)); setTimelineScroll(0); }}>
+              <img className="pill-btn__img" src={assetHref('ui/icon-zoom-plus.png')} alt="" />
+              <span className="pill-btn__label">Zoom In</span>
+            </button>
+            <button className="pill-btn" type="button" onClick={() => { setTimelineZoom(1); setTimelineScroll(0); }}>
+              <img className="pill-btn__img" src={assetHref('ui/icon-sliders.png')} alt="" />
+              <span className="pill-btn__label">Fit to Audio</span>
+            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <VolumeSlider value={volume} onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))} width={180} />
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle audio">
+                <img src={assetHref(themedIcon(collapsed.audio ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.audio ? 'Expand' : 'Collapse'} />
+              </button>
+            </div>
+          </div>
+          {!collapsed.audio && (
+            <div className="section-body" style={{ padding: 0, position: 'relative', overflow: 'hidden' }}>
+              <OverviewWaveform
+                duration={audioDuration}
+                playhead={session.playhead ?? 0}
+                onSeek={(t: number) => setSession((prev) => ({ ...prev, playhead: t }))}
+                peaks={overviewPeaks}
+                hasAudio={!!session.audioPath}
+                zoom={timelineZoom}
+                scroll={timelineScroll}
+                onEmptyClick={handleBrowseAudio}
+              />
+              <div style={{ position: 'absolute', left: 8, top: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button className="pill-btn pill-btn--compact" type="button" title="Load Audio" aria-label="Load Audio" onClick={handleBrowseAudio}>
+                  <img className="pill-btn__img" src={assetHref('ui/icon-audio-load.png')} alt="" />
+                  <span className="pill-btn__label">Audio</span>
+                </button>
+                <button className="pill-btn pill-btn--compact" type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
+                  <img className="pill-btn__img" src={assetHref(isPlaying ? 'ui/icon-audio-pause.png' : 'ui/icon-audio-play.png')} alt="" />
+                  <span className="pill-btn__label">{isPlaying ? 'Pause' : 'Play'}</span>
+                </button>
+                <div className="time-pill" style={{ marginTop: 2 }}>
+                  <span>{Math.floor(session.playhead ?? 0)}s</span>
+                  <span>/</span>
+                  <span>{Math.floor(audioDuration)}s</span>
                 </div>
               </div>
-            )}
-            {session.audioPath && (
-              <div className="panel" style={{ marginTop: 8, padding: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <span className="muted">{Math.floor(session.playhead ?? 0)}s / {Math.floor(audioDuration)}s</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <VolumeSlider
-                    value={volume}
-                    onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))}
-                  />
-                  <span className="muted" style={{ minWidth: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {Math.round(volume * 100)}%
-                  </span>
-                </div>
-                <Waveform
-                  ref={waveRef as any}
-                  srcPath={session.audioPath}
-                  playhead={session.playhead ?? 0}
-                  onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
-                  onDurationChange={(d) => setAudioDuration(d)}
-                  onPlayingChange={(p) => setIsPlaying(p)}
-                  volume={volume}
-                  hideBuiltInControls
-                  hideCanvas
-                  onAudioElement={(el) => { audioElRef.current = el; }}
-                />
-              </div>
-            )}
-            {!session.audioPath && <div className="muted" style={{ marginTop: 8 }}>No audio selected</div>}
-            <div style={{ margin: '6px 0 14px', padding: '2px 8px' }}>
+              <Waveform
+                ref={waveRef as any}
+                srcPath={session.audioPath ?? ''}
+                playhead={session.playhead ?? 0}
+                onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
+                onDurationChange={(d) => setAudioDuration(d)}
+                onPlayingChange={(p) => setIsPlaying(p)}
+                volume={volume}
+                hideBuiltInControls
+                hideCanvas
+                onAudioElement={(el) => { audioElRef.current = el; }}
+              />
+            </div>
+          )}
+          {session.audioPath && (
+            <div className="section-body" style={{ marginTop: 6, padding: '2px 8px' }}>
               <div style={{ height: 12, background: '#1e2432', borderRadius: 6, position: 'relative' }} onClick={(e) => {
                 const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
                 const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
@@ -941,86 +956,70 @@ const App = () => {
                 />
               </div>
             </div>
+          )}
         </div>
-
-        {/* Preview Row */}
-        <div className="right">
+        {/* Videos Row */}
+        <div className="right section-block">
           <div className="section-header">
-            <h2 style={{ margin: 0 }}>PREVIEW</h2>
-            <button className="collapse-btn" type="button" onClick={() => toggleSection('preview')} aria-label="Toggle preview">
-              {collapsed.preview ? '▾' : '▴'}
-            </button>
+            <h2 style={{ margin: 0 }}>VIDEOS</h2>
+            <PillIconButton icon="ui/icon-video-add.png" label="Browse" onClick={handleBrowseVideos} />
+            <PillIconButton icon="ui/icon-video.png" label="From Library" onClick={() => setAddVideoModalOpen(true)} />
+            <div style={{ marginLeft: 'auto' }}>
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('videos')} aria-label="Toggle videos">
+                <img src={assetHref(themedIcon(collapsed.videos ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.videos ? 'Expand' : 'Collapse'} />
+              </button>
+            </div>
           </div>
-          {!collapsed.preview && (
-            <div className="panel" style={{ padding: 8 }}>
-              <canvas ref={previewCanvasRef} style={{ width: '100%', height: 320, display: 'block', borderRadius: 8, background: '#0b0f16' }} />
+          {!collapsed.videos && (
+            <div className="section-body" style={{ marginTop: 4 }}>
+              {(session.videoPaths?.length ?? 0) > 0 ? (
+                <Storyboard
+                  paths={session.videoPaths ?? []}
+                  onChange={(next) => {
+                    setSession((prev) => ({ ...prev, videoPaths: next }));
+                    void updateProjectDirty(true);
+                  }}
+                  durations={videoDurations}
+                  totalDuration={audioDuration}
+                  zoom={timelineZoom}
+                  scroll={timelineScroll}
+                  playhead={session.playhead ?? 0}
+                  onDoubleClick={(path) => {
+                    const hit = (library.find((i) => i.path === path));
+                    if (hit) {
+                      setCollapsed((prev) => ({ ...prev, library: false }));
+                      setLibrarySelectedId(hit.id);
+                    } else {
+                      setCollapsed((prev) => ({ ...prev, library: false }));
+                    }
+                  }}
+                />
+              ) : (
+                <div className="muted" style={{ marginTop: '0.5rem' }}>No clips. Use Add Videos to include files.</div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Videos Row */}
-        <div className="right">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0 }}>VIDEOS</h2>
-              <PillIconButton icon="ui/icon-video-add.png" label="Browse" onClick={handleBrowseVideos} />
-              <PillIconButton icon="ui/icon-video.png" label="From Library" onClick={() => setAddVideoModalOpen(true)} />
-              <div style={{ marginLeft: 'auto' }}>
-                <button className="pill-btn" type="button" onClick={() => toggleSection('videos')}>
-                  <span className="pill-btn__label">{collapsed.videos ? 'Expand' : 'Collapse'}</span>
-                </button>
-              </div>
-            </div>
-            {!collapsed.videos && (
-              <>
-                {(session.videoPaths?.length ?? 0) > 0 ? (
-                  <div style={{ marginTop: 0 }}>
-                    <Storyboard
-                      paths={session.videoPaths ?? []}
-                      onChange={(next) => {
-                        setSession((prev) => ({ ...prev, videoPaths: next }));
-                        void updateProjectDirty(true);
-                      }}
-                      durations={videoDurations}
-                      totalDuration={audioDuration}
-                      zoom={timelineZoom}
-                      scroll={timelineScroll}
-                      playhead={session.playhead ?? 0}
-                      onDoubleClick={(path) => {
-                        const hit = (library.find((i) => i.path === path));
-                        if (hit) {
-                          setCollapsed((prev) => ({ ...prev, library: false }));
-                          setLibrarySelectedId(hit.id);
-                        } else {
-                          setCollapsed((prev) => ({ ...prev, library: false }));
-                        }
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="muted" style={{ marginTop: '0.5rem' }}>No clips. Use Add Videos to include files.</div>
-                )}
-              </>
-            )}
-        </div>
-
-        <div className="right">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0 }}>LAYERS</h2>
+        {/* Layers Row */}
+        <div className="right section-block">
+          <div className="section-header">
+            <h2 style={{ margin: 0 }}>LAYERS</h2>
             <PillIconButton icon="ui/icon-layer-visualizer-add.png" label="Visualizer" onClick={() => startNewLayer('spectrograph')} />
             <PillIconButton icon="ui/icon-layer-text-add.png" label="Text" onClick={() => startNewLayer('text')} />
             <div style={{ marginLeft: 'auto' }}>
-              <button className="pill-btn" type="button" onClick={() => toggleSection('layers')}>
-                <span className="pill-btn__label">{collapsed.layers ? 'Expand' : 'Collapse'}</span>
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('layers')} aria-label="Toggle layers">
+                <img src={assetHref(themedIcon(collapsed.layers ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.layers ? 'Expand' : 'Collapse'} />
               </button>
             </div>
           </div>
           {!collapsed.layers && (
-            <>
+            <div className="section-body">
               {layers.length === 0 && <div className="muted">No layers yet. Add spectrograph or text overlays to render on top of the video.</div>}
               {layers.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {layers.map((layer) => (
-                    <div key={layer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div key={layer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--panel-alt)', border: '1px solid var(--border)', borderRadius: 8 }}>
                       <div style={{ width: 16, height: 16, borderRadius: 4, background: layer.color }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600 }}>{layer.type === 'text' ? 'Text Layer' : 'Spectrograph Layer'}</div>
@@ -1038,108 +1037,107 @@ const App = () => {
               )}
               {layerDialogOpen && (
                 <div className="panel" style={{ marginTop: 10, padding: 12 }}>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Type
-                  <select
-                    value={layerDraft.type ?? 'spectrograph'}
-                    onChange={(e) => {
-                      const nextType = e.target.value as LayerType;
-                      setLayerDraft((prev) => ({
-                        ...prev,
-                        type: nextType,
-                        mode: nextType === 'spectrograph' ? (prev.mode as any) ?? 'bar' : undefined,
-                        text: nextType === 'text' ? (prev.text ?? 'Text') : undefined,
-                        font: nextType === 'text' ? (prev.font ?? 'Segoe UI') : undefined,
-                        fontSize: nextType === 'text' ? (prev.fontSize ?? 12) : undefined,
-                      }));
-                    }}
-                  >
-                    <option value="spectrograph">Standard Spectrograph</option>
-                    <option value="text">Text</option>
-                  </select>
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Color
-                  <input type="color" value={layerDraft.color ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, color: e.target.value }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Outline Color
-                  <input type="color" value={layerDraft.outlineColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineColor: e.target.value }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Outline Width
-                  <input type="number" min={0} max={20} value={layerDraft.outlineWidth ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineWidth: Number(e.target.value) }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Glow Color
-                  <input type="color" value={layerDraft.glowColor ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowColor: e.target.value }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Glow Amount
-                  <input type="number" min={0} max={50} value={layerDraft.glowAmount ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowAmount: Number(e.target.value) }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Glow Opacity
-                  <input type="number" min={0} max={1} step={0.05} value={layerDraft.glowOpacity ?? 0.4} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowOpacity: Number(e.target.value) }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Shadow Color
-                  <input type="color" value={layerDraft.shadowColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowColor: e.target.value }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Shadow Distance
-                  <input type="number" min={0} max={50} value={layerDraft.shadowDistance ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowDistance: Number(e.target.value) }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  X (%)
-                  <input type="number" min={0} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, x: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  Y (%)
-                  <input type="number" min={0} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, y: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
-                </label>
-                {layerDraft.type === 'spectrograph' && (
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    Mode
-                    <select value={layerDraft.mode ?? 'bar'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' }))}>
-                      <option value="bar">Bar</option>
-                      <option value="line">Line</option>
-                      <option value="solid">Solid</option>
-                      <option value="dots">Dots</option>
-                    </select>
-                  </label>
-                )}
-                {layerDraft.type === 'text' && (
-                  <>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      Text
-                      <input type="text" value={layerDraft.text ?? ''} onChange={(e) => setLayerDraft((prev) => ({ ...prev, text: e.target.value }))} />
+                      Type
+                      <select
+                        value={layerDraft.type ?? 'spectrograph'}
+                        onChange={(e) => {
+                          const nextType = e.target.value as LayerType;
+                          setLayerDraft((prev) => ({
+                            ...prev,
+                            type: nextType,
+                            mode: nextType === 'spectrograph' ? (prev.mode as any) ?? 'bar' : undefined,
+                            text: nextType === 'text' ? (prev.text ?? 'Text') : undefined,
+                            font: nextType === 'text' ? (prev.font ?? 'Segoe UI') : undefined,
+                            fontSize: nextType === 'text' ? (prev.fontSize ?? 12) : undefined,
+                          }));
+                        }}
+                      >
+                        <option value="spectrograph">Standard Spectrograph</option>
+                        <option value="text">Text</option>
+                      </select>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      Font
-                      <input type="text" value={layerDraft.font ?? 'Segoe UI'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, font: e.target.value }))} />
+                      Color
+                      <input type="color" value={layerDraft.color ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, color: e.target.value }))} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      Font Size
-                      <input type="number" min={8} max={96} value={layerDraft.fontSize ?? 12} onChange={(e) => setLayerDraft((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} />
+                      Outline Color
+                      <input type="color" value={layerDraft.outlineColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineColor: e.target.value }))} />
                     </label>
-                  </>
-                )}
-              </div>
-              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                <button type="button" onClick={saveLayerDraft}>OK</button>
-                <button type="button" onClick={() => { setLayerDialogOpen(false); }}>Cancel</button>
-              </div>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Outline Width
+                      <input type="number" min={0} max={20} value={layerDraft.outlineWidth ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineWidth: Number(e.target.value) }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Glow Color
+                      <input type="color" value={layerDraft.glowColor ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowColor: e.target.value }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Glow Amount
+                      <input type="number" min={0} max={50} value={layerDraft.glowAmount ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowAmount: Number(e.target.value) }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Glow Opacity
+                      <input type="number" min={0} max={1} step={0.05} value={layerDraft.glowOpacity ?? 0.4} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowOpacity: Number(e.target.value) }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Shadow Color
+                      <input type="color" value={layerDraft.shadowColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowColor: e.target.value }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Shadow Distance
+                      <input type="number" min={0} max={50} value={layerDraft.shadowDistance ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowDistance: Number(e.target.value) }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      X (%)
+                      <input type="number" min={0} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, x: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Y (%)
+                      <input type="number" min={0} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, y: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
+                    </label>
+                    {layerDraft.type === 'spectrograph' && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Mode
+                        <select value={layerDraft.mode ?? 'bar'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' }))}>
+                          <option value="bar">Bar</option>
+                          <option value="line">Line</option>
+                          <option value="solid">Solid</option>
+                          <option value="dots">Dots</option>
+                        </select>
+                      </label>
+                    )}
+                    {layerDraft.type === 'text' && (
+                      <>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Text
+                          <input type="text" value={layerDraft.text ?? ''} onChange={(e) => setLayerDraft((prev) => ({ ...prev, text: e.target.value }))} />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Font
+                          <input type="text" value={layerDraft.font ?? 'Segoe UI'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, font: e.target.value }))} />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Font Size
+                          <input type="number" min={8} max={96} value={layerDraft.fontSize ?? 12} onChange={(e) => setLayerDraft((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                    <button type="button" onClick={saveLayerDraft}>OK</button>
+                    <button type="button" onClick={() => { setLayerDialogOpen(false); }}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
-            </>
-          )}
         </div>
-
         {/* Media Library */}
-        <div className="right">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div className="right section-block">
+          <div className="section-header">
             <h2 style={{ margin: 0 }}>MEDIA LIBRARY</h2>
             <button className="pill-btn" type="button" onClick={() => setAddVideoModalOpen(true)}>
               <span>Add Entry</span>
@@ -1153,13 +1151,13 @@ const App = () => {
               <span>Remove</span>
             </button>
             <div style={{ marginLeft: 'auto' }}>
-              <button className="pill-btn" type="button" onClick={() => toggleSection('library')}>
-                <span className="pill-btn__label">{collapsed.library ? 'Expand' : 'Collapse'}</span>
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('library')} aria-label="Toggle library">
+                <img src={assetHref(themedIcon(collapsed.library ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.library ? 'Expand' : 'Collapse'} />
               </button>
             </div>
           </div>
           {!collapsed.library && (
-            <div className="panel" style={{ padding: 8 }}>
+            <div className="section-body">
               {library.length === 0 && <div className="muted">No items in library.</div>}
               {library.length > 0 && (
                 <>
@@ -1199,6 +1197,8 @@ const App = () => {
             </div>
           )}
         </div>
+
+
 
         {addVideoModalOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -1245,21 +1245,35 @@ const App = () => {
           </div>
         )}
 
-        <div className="right">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0 }}>PROJECT</h2>
-              <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} />
-              <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} />
-              <PillIconButton icon="ui/icon-project-save.png" label="Save" onClick={handleSaveProject} />
-              <div style={{ marginLeft: 'auto' }}>
-                <button className="pill-btn" type="button" onClick={() => toggleSection('project')}>
-                  <span className="pill-btn__label">{collapsed.project ? 'Expand' : 'Collapse'}</span>
-                </button>
-              </div>
-              <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
+        <div className="right section-block">
+          <div className="section-header">
+            <h2 style={{ margin: 0 }}>PROJECT</h2>
+            <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} />
+            <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} />
+            <PillIconButton icon="ui/icon-project-save.png" label="Save" onClick={handleSaveProject} />
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text)', fontWeight: 600 }}>
+                Theme
+                <select
+                  value={theme}
+                  onChange={(e) => {
+                    const next = e.target.value === 'light' ? 'light' : 'dark';
+                    setThemeChoice(next);
+                  }}
+                  style={{ background: 'var(--panel-alt)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 6px' }}
+                >
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                </select>
+              </label>
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('project')} aria-label="Toggle project">
+                <img src={assetHref(themedIcon(collapsed.project ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.project ? 'Expand' : 'Collapse'} />
+              </button>
             </div>
-            {!collapsed.project && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: '0.5rem', flexWrap: 'wrap' }}>
+          </div>
+          {!collapsed.project && (
+            <div className="section-body">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                 <h2 style={{ margin: 0 }}>RENDER</h2>
                 <PillIconButton icon="ui/icon-sliders.png" label="Render" onClick={handleStartRender} disabled={!session.projectSavePath || isRendering} />
                 <PillIconButton icon="ui/icon-x.png" label="Cancel" onClick={() => cancelRender()} disabled={!isRendering} />
@@ -1272,31 +1286,32 @@ const App = () => {
                     ETA: {Math.max(0, Math.floor((renderTotalMs - renderElapsedMs)/1000))}s
                   </span>
                 )}
+                <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
               </div>
-            )}
-            {renderTotalMs > 0 && (
-              <div style={{ marginTop: '0.5rem', height: 10, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs / renderTotalMs) * 100)).toFixed(1)}%`, background: '#3f51b5' }} />
-              </div>
-            )}
-            <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-              {logs.length === 0 ? (
-                <div style={{ color: '#777' }}>Render logs will appear here...</div>
-              ) : (
-                logs.map((l, i) => (<div key={i}>{l}</div>))
+              {renderTotalMs > 0 && (
+                <div style={{ marginTop: '0.5rem', height: 10, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs / renderTotalMs) * 100)).toFixed(1)}%`, background: '#3f51b5' }} />
+                </div>
               )}
+              <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
+                {logs.length === 0 ? (
+                  <div style={{ color: '#777' }}>Render logs will appear here...</div>
+                ) : (
+                  logs.map((l, i) => (<div key={i}>{l}</div>))
+                )}
+              </div>
             </div>
+          )}
         </div>
 
         {/* Notes Row (collapsed by default) */}
-        <div className="right">
+        <div className="right section-block">
           <div className="section-header">
             <h2 style={{ margin: 0 }}>NOTES</h2>
             <PillIconButton icon="ui/button_notes.svg" label={showNotes ? 'Hide' : 'Show'} onClick={() => setShowNotes((v) => !v)} />
           </div>
-          <h2>Notes</h2>
           {showNotes && (
-            <>
+            <div className="section-body">
               <textarea
                 id="session-notes"
                 style={{ display: 'block', width: '100%', minHeight: '200px', marginTop: '0.5rem' }}
@@ -1307,13 +1322,13 @@ const App = () => {
                 <button type="button" onClick={handleSave}>Save Session</button>
                 <button type="button" onClick={handleExport}>Export Session</button>
               </div>
-            </>
-          )}
-          {status && <p style={{ color: 'green' }}>{status}</p>}
-          {error && (
-            <p role="alert" style={{ color: 'red' }}>
-              {error}
-            </p>
+              {status && <p style={{ color: 'green' }}>{status}</p>}
+              {error && (
+                <p role="alert" style={{ color: 'red' }}>
+                  {error}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

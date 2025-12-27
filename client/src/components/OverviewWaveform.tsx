@@ -8,9 +8,10 @@ export interface OverviewWaveformProps {
   hasAudio: boolean;
   zoom: number;
   scroll: number; // 0..1
+  onEmptyClick?: () => void;
 }
 
-const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, scroll }: OverviewWaveformProps) => {
+const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, scroll, onEmptyClick }: OverviewWaveformProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -35,17 +36,17 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
 
       ctx.clearRect(0, 0, width, height);
       // Background and stripes
-      ctx.fillStyle = hasAudio ? '#0f121c' : '#2b1c0f';
+      ctx.fillStyle = hasAudio ? '#0f121c' : '#1c1f26';
       ctx.fillRect(0, 0, width, height);
       const stripeWidth = 10;
       for (let x = -viewStart; x < contentWidth; x += stripeWidth) {
         ctx.fillStyle = hasAudio
           ? (x % (stripeWidth * 4) === 0 ? '#1f2740' : '#26314a')
-          : (x % (stripeWidth * 4) === 0 ? '#3a2616' : '#432f1c');
+          : (x % (stripeWidth * 4) === 0 ? '#2a303d' : '#323a49');
         ctx.fillRect(x + viewStart, 0, stripeWidth, height);
       }
-      ctx.fillStyle = hasAudio ? '#6a7bd6' : '#c6802a';
-      ctx.globalAlpha = hasAudio ? 0.25 : 0.2;
+      ctx.fillStyle = hasAudio ? '#6a7bd6' : '#4f5564';
+      ctx.globalAlpha = hasAudio ? 0.25 : 0.15;
       ctx.fillRect(0, 0, width, height);
       ctx.globalAlpha = 1;
 
@@ -94,12 +95,16 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
       // Playhead line
       const pct = duration > 0 ? Math.max(0, Math.min(1, playhead / duration)) : 0;
       const x = Math.floor(pct * contentWidth) - viewStart;
+      ctx.save();
       ctx.strokeStyle = '#ffcc00';
       ctx.lineWidth = 2;
+      ctx.shadowColor = 'rgba(255, 204, 0, 0.9)';
+      ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.moveTo(x + 0.5, 0);
       ctx.lineTo(x + 0.5, height);
       ctx.stroke();
+      ctx.restore();
 
       if (!hasAudio) {
         ctx.fillStyle = '#e7b77a';
@@ -118,7 +123,12 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
 
   const onClick: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
     const canvas = canvasRef.current;
-    if (!canvas || duration <= 0) return;
+    if (!canvas) return;
+    if (!hasAudio) {
+      onEmptyClick?.();
+      return;
+    }
+    if (duration <= 0) return;
     const rect = canvas.getBoundingClientRect();
     const width = rect.width;
     const contentWidth = width * Math.max(1, zoom);

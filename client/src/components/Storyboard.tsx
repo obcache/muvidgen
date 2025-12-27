@@ -16,16 +16,16 @@ const fileName = (p: string) => {
   return parts[parts.length - 1] || p;
 };
 
-const colorFor = (key: string, index: number) => {
-  // Stable hash for friendly HSL
+const colorFor = (key: string) => {
+  // Stable hash for friendly HSL, independent of ordering
   let h = 2166136261;
-  const seed = `${key}:${index}`;
+  const seed = key;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
     h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
   }
   const hueBase = Math.abs(h) % 360;
-  const hue = (hueBase + index * 137.508) % 360;
+  const hue = hueBase;
   const sat = 55 + (Math.abs((h >> 8)) % 15);
   const light = 45 + (Math.abs((h >> 16)) % 12);
   return `hsl(${hue} ${sat}% ${light}%)`;
@@ -95,7 +95,7 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
             userSelect: 'none',
             padding: '6px 28px 6px 8px',
             borderRadius: 4,
-            background: colorFor(item.path, item.index),
+            background: colorFor(item.path),
             color: 'white',
             minWidth: 80,
             overflow: 'hidden',
@@ -150,6 +150,7 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
             bottom: 0,
             width: 2,
             background: '#ffcc00',
+            boxShadow: '0 0 8px rgba(255, 204, 0, 0.85)',
             left: `${Math.max(0, Math.min(1, (playhead / totalDuration) * zoom - Math.max(0, scroll) * (zoom - 1))) * 100}%`,
             pointerEvents: 'none',
           }}
