@@ -123,6 +123,9 @@ const mockBridge: ElectronAPI = {
   async readFileBuffer() {
     return new Uint8Array();
   },
+  async fileExists(_filePath: string) {
+    return true;
+  },
   async chooseProjectSavePath() {
     return undefined;
   },
@@ -239,6 +242,14 @@ export const readFileBuffer = async (filePath: string): Promise<Uint8Array> => {
     return new Uint8Array(res as ArrayBuffer);
   }
   return new Uint8Array();
+};
+
+export const fileExists = async (filePath: string): Promise<boolean> => {
+  try {
+    return await getBridge().fileExists(filePath);
+  } catch {
+    return false;
+  }
 };
 
 export const chooseProjectSavePath = async (defaultPath?: string): Promise<string | undefined> => {

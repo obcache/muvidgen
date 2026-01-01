@@ -233,6 +233,16 @@ label { color: var(--text); }
   justify-content: center;
 }
 
+.pill-btn--compact {
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1.1;
+}
+.pill-btn--compact .pill-btn__img {
+  width: 16px;
+  height: 16px;
+}
+
 .pill-btn__img {
   width: 18px;
   height: 18px;
@@ -255,8 +265,8 @@ label { color: var(--text); }
 }
 
 .collapse-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--panel);
@@ -265,6 +275,34 @@ label { color: var(--text); }
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  font-size: 18px;
 }
 .collapse-btn:hover { background: var(--panel-alt); }
 .collapse-btn:active { transform: translateY(1px); }
+.collapse-btn img { width: 14px; height: 14px; }
+
+.section-block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.section-body {
+  margin-top: 10px;
+}
+
+.time-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  backdrop-filter: blur(2px);
+}

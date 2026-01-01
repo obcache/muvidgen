@@ -110,6 +110,16 @@ ipcMain.handle('videos:open', async (): Promise<string[]> => {
   return result.filePaths;
 });
 
+ipcMain.handle('file:exists', async (_event, filePath: string): Promise<boolean> => {
+  if (!filePath || typeof filePath !== 'string') return false;
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 ipcMain.handle('file:readBuffer', async (_event, filePath: string): Promise<Buffer> => {
   if (!filePath || typeof filePath !== 'string') {
     throw new Error('Invalid file path');

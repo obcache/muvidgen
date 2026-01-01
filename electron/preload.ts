@@ -20,6 +20,7 @@ export interface ElectronBridge {
   openAudioFile: () => Promise<string | undefined>;
   openVideoFiles: () => Promise<string[]>;
   readFileBuffer: (filePath: string) => Promise<Uint8Array>;
+  fileExists: (filePath: string) => Promise<boolean>;
   chooseProjectSavePath: (defaultPath?: string) => Promise<string | undefined>;
   startRender: (projectJsonPath: string) => Promise<void>;
   cancelRender: () => Promise<void>;
@@ -51,6 +52,7 @@ const bridge: ElectronBridge = {
     const buf: Buffer = await ipcRenderer.invoke('file:readBuffer', filePath);
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
   },
+  fileExists: (filePath: string) => ipcRenderer.invoke('file:exists', filePath),
   chooseProjectSavePath: (defaultPath?: string) => ipcRenderer.invoke('project:saveAs', defaultPath),
   startRender: (projectJsonPath: string) => ipcRenderer.invoke('render:start', projectJsonPath),
   cancelRender: () => ipcRenderer.invoke('render:cancel'),
