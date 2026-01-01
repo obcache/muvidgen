@@ -1575,8 +1575,24 @@ const App = () => {
           </div>
         )}
 
-        <div className="right section-block" style={{ opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
-          <div className="section-header">
+        <div className="right section-block" style={{ position: 'relative' }}>
+          {projectLocked && (
+            <button
+              type="button"
+              onClick={() => setLicenseModalOpen(true)}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 3,
+                background: 'rgba(0,0,0,0.45)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              aria-label="Upgrade to full version"
+            />
+          )}
+          <div className="section-header" style={{ opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
             <h2 style={{ margin: 0 }}>PROJECT</h2>
             <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
             <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
@@ -1602,11 +1618,9 @@ const App = () => {
             </div>
           </div>
           {!collapsed.project && (
-            <div className="section-body" style={{ position: 'relative' }}>
+            <div className="section-body" style={{ position: 'relative', opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
               {projectLocked && (
-                <button
-                  type="button"
-                  onClick={() => setLicenseModalOpen(true)}
+                <div
                   style={{
                     position: 'absolute',
                     inset: 0,
@@ -1620,14 +1634,14 @@ const App = () => {
                     fontWeight: 700,
                     border: '1px dashed var(--border)',
                     borderRadius: 8,
-                    cursor: 'pointer',
                     textAlign: 'center',
                     lineHeight: 1.4,
                     zIndex: 2,
+                    pointerEvents: 'none',
                   }}
                 >
                   Trial Edition: Click here to upgrade to the Full Version.
-                </button>
+                </div>
               )}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem', flexWrap: 'wrap' }}>
