@@ -9,8 +9,122 @@
   --accent: #3f51b5;
   --btn-bg: #1f2430;
   --btn-bg-hover: #242b38;
-  --font-ui: 'Orbitron', 'Exo 2', 'Rajdhani', 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  --font-ui: 'Laritza', 'Orbitron', 'Exo 2', 'Rajdhani', 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
 }
+
+@font-face {
+  font-family: 'Laritza';
+  src: url('/fonts/Laritza.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Explosion';
+  src: url('/fonts/Explosion.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Explosion-3D';
+  src: url('/fonts/Explosion-3D.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Explosion-Outlined';
+  src: url('/fonts/Explosion-Outlined.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Explosion-Outlined-3D';
+  src: url('/fonts/Explosion-Outlined-3D.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Failed';
+  src: url('/fonts/Failed.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Failed-3D';
+  src: url('/fonts/Failed-3D.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Failed-3D-Italic';
+  src: url('/fonts/Failed-3D-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Failed-Italic';
+  src: url('/fonts/Failed-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Esprit';
+  src: url('/fonts/Esprit.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essen';
+  src: url('/fonts/Essen.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essen3D';
+  src: url('/fonts/Essen3D.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essen-Bold';
+  src: url('/fonts/Essen-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essen-Italic';
+  src: url('/fonts/Essen-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essere';
+  src: url('/fonts/Essere.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Essere-Italic';
+  src: url('/fonts/Essere-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 
 :root[data-theme='light'] {
   --bg: #f7f7fb;
