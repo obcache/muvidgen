@@ -29,6 +29,8 @@ export interface SpectrographLayer extends LayerConfigBase {
   glowOpacity?: number;
   shadowColor?: string;
   shadowDistance?: number;
+  lowCutHz?: number;
+  highCutHz?: number;
 }
 
 export interface TextLayer extends LayerConfigBase {

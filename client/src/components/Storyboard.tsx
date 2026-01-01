@@ -1,14 +1,20 @@
 import { useCallback, useMemo, useState } from 'react';
 
+type Theme = 'dark' | 'light';
+
 export interface StoryboardProps {
   paths: string[];
   onChange: (next: string[]) => void;
   durations?: Record<string, number>;
+  names?: Record<string, string>;
+  missingPaths?: Set<string>;
   totalDuration?: number;
   zoom?: number;
   scroll?: number; // 0..1
   playhead?: number; // seconds
   onDoubleClick?: (path: string) => void;
+  theme?: Theme;
+  onContextMenu?: (path: string, index: number, clientX: number, clientY: number) => void;
 }
 
 const fileName = (p: string) => {
@@ -46,7 +52,7 @@ const formatDur = (sec?: number) => {
   return `${m}:${String(r).padStart(2, '0')}`;
 };
 
-const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scroll = 0, playhead = 0, onDoubleClick }: StoryboardProps) => {
+const Storyboard = ({ paths, onChange, durations, names, missingPaths, totalDuration, zoom = 1, scroll = 0, playhead = 0, onDoubleClick, theme = 'dark', onContextMenu }: StoryboardProps) => {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
 
   const items = useMemo(() => paths.map((p, i) => ({ path: p, index: i })), [paths]);
@@ -80,7 +86,7 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
 
   return (
     <div style={{ overflow: 'hidden', padding: 0, border: '1px solid #333', borderRadius: 4, background: '#0b0b0b', position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 8, padding: 8, minWidth: `${100 * zoom}%`, transform: `translateX(-${Math.max(0, Math.min(1, scroll)) * Math.max(0, (zoom - 1) * 100)}%)`, transition: 'transform 0.05s linear' }}>
+      <div style={{ display: 'flex', gap: 8, padding: 8, minWidth: `${100 * Math.max(1, zoom)}%`, transform: `translateX(-${Math.max(0, Math.min(1, scroll)) * Math.max(0, (zoom - 1) * 100)}%)`, transition: 'transform 0.05s linear' }}>
       {items.map((item) => (
         <div
           key={item.path + ':' + item.index}
@@ -90,14 +96,15 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
           onDragOver={onDragOver}
           onDrop={(e) => onDrop(item.index, e)}
           onDoubleClick={() => onDoubleClick?.(item.path)}
+          onContextMenu={(e) => { e.preventDefault(); onContextMenu?.(item.path, item.index, e.clientX, e.clientY); }}
           style={{
             cursor: 'move',
             userSelect: 'none',
             padding: '6px 28px 6px 8px',
             borderRadius: 4,
-            background: colorFor(item.path),
+            background: missingPaths?.has(item.path) ? '#4a2a2a' : colorFor(item.path),
             color: 'white',
-            minWidth: 80,
+            minWidth: 1,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -105,13 +112,13 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
             opacity: dragFrom === item.index ? 0.6 : 1,
             flex: '0 0 auto',
             width: totalDuration && durations && durations[item.path] != null && totalDuration > 0
-              ? `${Math.max(4, (durations[item.path]! / totalDuration) * 100 * zoom)}%`
-              : `${Math.max(6, 12 * zoom)}%`,
+              ? `${Math.max(4, (durations[item.path]! / totalDuration) * 100)}%`
+              : `${Math.max(6, 12)}%`,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={item.path}>
-              {fileName(item.path)}
+              {names?.[item.path] ?? fileName(item.path)}
             </span>
             <span style={{ fontWeight: 600 }}>{formatDur(durations?.[item.path])}</span>
           </div>
@@ -123,19 +130,25 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
             style={{
               position: 'absolute',
               right: 6,
-              top: 4,
-              background: 'rgba(0,0,0,0.25)',
+              top: 8,
+              background: 'transparent',
               color: 'white',
               border: 'none',
-              borderRadius: 3,
               width: 20,
               height: 20,
-              lineHeight: '20px',
-              textAlign: 'center',
               cursor: 'pointer',
+              padding: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 0,
             }}
           >
-            X
+            <img
+              src={theme === 'light' ? 'ui/icon-segment-remove-light.png' : 'ui/icon-segment-remove.png'}
+              alt="Remove"
+              style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
+            />
           </button>
         </div>
       ))}
@@ -151,6 +164,7 @@ const Storyboard = ({ paths, onChange, durations, totalDuration, zoom = 1, scrol
             width: 2,
             background: '#ffcc00',
             boxShadow: '0 0 8px rgba(255, 204, 0, 0.85)',
+            fontSize: 6,
             left: `${Math.max(0, Math.min(1, (playhead / totalDuration) * zoom - Math.max(0, scroll) * (zoom - 1))) * 100}%`,
             pointerEvents: 'none',
           }}

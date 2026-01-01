@@ -26,6 +26,7 @@ import {
   loadMediaLibrary,
   saveMediaLibrary as persistMediaLibrary,
   probeMediaFile,
+  fileExists,
 } from './state/storage';
 import type { SessionState } from './types/session';
 // ProjectSchema usage comes via storage types; no direct import needed here.
@@ -47,9 +48,10 @@ type LocalSession = SessionState & {
   playhead?: number;
   layers?: LayerConfig[];
   theme?: Theme;
+  videoNames?: Record<string, string>;
 };
 
-const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark' };
+const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark', videoNames: {} };
 
 const App = () => {
   const [session, setSession] = useState<LocalSession>(defaultState);
@@ -80,14 +82,31 @@ const App = () => {
   const [library, setLibrary] = useState<MediaLibraryItem[]>([]);
   const [librarySelectedId, setLibrarySelectedId] = useState<string | null>(null);
   const [addVideoModalOpen, setAddVideoModalOpen] = useState<boolean>(false);
+  const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{ path: string; index: number; x: number; y: number } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ path: string; index: number; name: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    preview: false,
+    preview: true,
     audio: false,
     videos: false,
     layers: false,
     project: false,
     library: false,
   });
+  const [licenseStatus, setLicenseStatus] = useState<{ licensed: boolean; key?: string }>(() => {
+    try {
+      const raw = localStorage.getItem('muvidgen:license');
+      if (raw) {
+        const parsed = JSON.parse(raw) as { licensed?: boolean; key?: string };
+        return { licensed: !!parsed.licensed, key: parsed.key };
+      }
+    } catch {}
+    return { licensed: false, key: '' };
+  });
+  const [licenseModalOpen, setLicenseModalOpen] = useState(false);
+  const [licenseKeyInput, setLicenseKeyInput] = useState('');
+  const [licenseError, setLicenseError] = useState<string | null>(null);
+  const isLicensed = licenseStatus.licensed;
   const getMaxVideoWidth = useCallback(() => {
     let max = 0;
     videoPoolRef.current.forEach((v) => {
@@ -198,8 +217,37 @@ const App = () => {
   }, [applyTheme, theme]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem('muvidgen:license', JSON.stringify(licenseStatus));
+    } catch {}
+  }, [licenseStatus]);
+
+  useEffect(() => {
+    if (licenseModalOpen) {
+      setLicenseKeyInput(licenseStatus.key ?? '');
+      setLicenseError(null);
+    }
+  }, [licenseModalOpen, licenseStatus.key]);
+
+  useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  // Check missing media (audio, videos, library) when paths change
+  useEffect(() => {
+    const checkMissing = async () => {
+      const targets = new Set<string>();
+      if (session.audioPath) targets.add(session.audioPath);
+      (session.videoPaths ?? []).forEach((p) => targets.add(p));
+      library.forEach((item) => targets.add(item.path));
+      const results = await Promise.all(
+        Array.from(targets).map(async (p) => ({ p, ok: await fileExists(p) }))
+      );
+      const missing = results.filter((r) => !r.ok).map((r) => r.p);
+      setMissingPaths(new Set(missing));
+    };
+    void checkMissing();
+  }, [session.audioPath, session.videoPaths, library]);
 
   // Sync theme from session load
   useEffect(() => {
@@ -212,6 +260,14 @@ const App = () => {
   useEffect(() => {
     setSession((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
   }, [theme]);
+
+  // Auto-expand preview when media or layers are present
+  useEffect(() => {
+    const hasMedia = (session.videoPaths?.length ?? 0) > 0 || (session.layers?.length ?? 0) > 0;
+    if (hasMedia) {
+      setCollapsed((prev) => (prev.preview ? { ...prev, preview: false } : prev));
+    }
+  }, [session.videoPaths, session.layers]);
 
   useEffect(() => {
     // Reset zoom/scroll when audio loads
@@ -231,6 +287,8 @@ const App = () => {
       y: 0.05,
       width: baseWidth,
       height: Math.round(baseWidth * 9 / 16),
+      lowCutHz: 40,
+      highCutHz: 16000,
       mode: type === 'spectrograph' ? 'bar' : undefined,
       text: type === 'text' ? 'Text' : undefined,
       font: type === 'text' ? 'Segoe UI' : undefined,
@@ -244,27 +302,54 @@ const App = () => {
     setLayerDialogOpen(true);
   };
 
-  const saveLayerDraft = () => {
-    const draft = layerDraft as LayerConfig;
-    if (!draft.type || !draft.id) return;
-    if (draft.type === 'spectrograph') {
-      draft.mode = (draft as any).mode === 'line' || (draft as any).mode === 'solid' || (draft as any).mode === 'dots' ? (draft as any).mode : 'bar';
-      if (!draft.width) {
+  const normalizeLayerDraft = (draft: Partial<LayerConfig>): LayerConfig | null => {
+    if (!draft.type || !draft.id) return null;
+    const normalized: LayerConfig = { ...(draft as LayerConfig) };
+    if (normalized.type === 'spectrograph') {
+      normalized.mode = normalized.mode === 'line' || normalized.mode === 'solid' || normalized.mode === 'dots' ? normalized.mode : 'bar';
+      if (!normalized.width || !normalized.height) {
         const w = getMaxVideoWidth();
-        draft.width = w;
-        draft.height = Math.round(w * 9 / 16);
+        normalized.width = w;
+        normalized.height = Math.round(w * 9 / 16);
       }
-    } else if (draft.type === 'text') {
-      (draft as any).text = (draft as any).text ?? 'Text';
-      (draft as any).font = (draft as any).font ?? 'Segoe UI';
-      (draft as any).fontSize = Number((draft as any).fontSize ?? 12);
+      normalized.lowCutHz = Number.isFinite(normalized.lowCutHz as number) ? normalized.lowCutHz : 40;
+      normalized.highCutHz = Number.isFinite(normalized.highCutHz as number) ? normalized.highCutHz : 16000;
+    } else if (normalized.type === 'text') {
+      normalized.text = normalized.text ?? 'Text';
+      normalized.font = normalized.font ?? 'Segoe UI';
+      normalized.fontSize = Number(normalized.fontSize ?? 12);
     }
+    return normalized;
+  };
+
+  const updateLayerDraftField = (partial: Partial<LayerConfig>) => {
+    setLayerDraft((prev) => {
+      const next = { ...prev, ...partial };
+      const normalized = normalizeLayerDraft(next);
+      if (normalized) {
+        setSession((prevSession) => {
+          const existing = prevSession.layers ?? [];
+          const idx = existing.findIndex((l) => l.id === normalized.id);
+          const newLayers = existing.slice();
+          if (idx >= 0) newLayers[idx] = normalized;
+          else newLayers.push(normalized);
+          return { ...prevSession, layers: newLayers };
+        });
+        void updateProjectDirty(true);
+      }
+      return next;
+    });
+  };
+
+  const saveLayerDraft = () => {
+    const normalized = normalizeLayerDraft(layerDraft);
+    if (!normalized) return;
     setSession((prev) => {
       const existing = prev.layers ?? [];
-      const idx = existing.findIndex((l) => l.id === draft.id);
+      const idx = existing.findIndex((l) => l.id === normalized.id);
       const next = existing.slice();
-      if (idx >= 0) next[idx] = draft;
-      else next.push(draft);
+      if (idx >= 0) next[idx] = normalized;
+      else next.push(normalized);
       return { ...prev, layers: next };
     });
     setLayerDialogOpen(false);
@@ -276,17 +361,37 @@ const App = () => {
     void updateProjectDirty(true);
   };
 
+  const duplicateLayer = (layer: LayerConfig) => {
+    const next = { ...layer, id: makeId(), x: Math.min(1, (layer.x ?? 0) + 0.02), y: Math.min(1, (layer.y ?? 0) + 0.02) };
+    setSession((prev) => ({ ...prev, layers: [...(prev.layers ?? []), next] }));
+    void updateProjectDirty(true);
+  };
+
   const saveLibrary = async (items: MediaLibraryItem[]) => {
+    console.info('[library] saveLibrary', { count: items.length });
     setLibrary(items);
     try {
       await persistMediaLibrary(items);
+      console.info('[library] persisted to disk');
     } catch (err) {
       console.warn('Failed to save media library', err);
     }
   };
 
+  const updateLibraryName = async (path: string, nextName: string) => {
+    const next = library.map((i) => (i.path === path ? { ...i, name: nextName } : i));
+    setLibrary(next);
+    await saveLibrary(next);
+  };
+
   const addLibraryEntryFromPath = async (filePath: string, name: string) => {
-    const meta = await probeMediaFile(filePath);
+    console.info('[library] addLibraryEntryFromPath', filePath);
+    let meta: Partial<MediaLibraryItem> = {};
+    try {
+      meta = await probeMediaFile(filePath);
+    } catch (err) {
+      console.warn('Probe failed; adding without metadata', err);
+    }
     const item: MediaLibraryItem = {
       id: makeId(),
       name: name.trim(),
@@ -299,8 +404,8 @@ const App = () => {
       width: meta.width ? Number(meta.width) : undefined,
       height: meta.height ? Number(meta.height) : undefined,
     };
-    const next = [...library, item];
-    await saveLibrary(next);
+    await saveLibrary([...library, item]);
+    console.info('[library] added item', item);
     return item;
   };
 
@@ -329,8 +434,8 @@ const App = () => {
   }, [session.videoPaths]);
 
   const buildProjectFromSession = useCallback((): ProjectSchema => {
-    const clips: ProjectSchema['clips'] = (session.videoPaths ?? []).map((p, index) => {
-      const clip: ProjectSchema['clips'][number] = { path: p, index };
+      const clips: ProjectSchema['clips'] = (session.videoPaths ?? []).map((p, index) => {
+      const clip: ProjectSchema['clips'][number] = { path: p, index, label: (session.videoNames ?? {})[p] };
       const dur = videoDurations[p];
       if (Number.isFinite(dur)) clip.duration = dur;
       return clip;
@@ -414,7 +519,8 @@ const App = () => {
       if (!paths || paths.length === 0) return;
       setSession((prev) => {
         const existing = prev.videoPaths ?? [];
-        return { ...prev, videoPaths: [...existing, ...paths] };
+        const nextNames = { ...(prev.videoNames ?? {}) };
+        return { ...prev, videoPaths: [...existing, ...paths], videoNames: nextNames };
       });
       setStatus(`${paths.length} video file(s) added`);
       void updateProjectDirty(true);
@@ -423,46 +529,185 @@ const App = () => {
     }
   };
 
+  const getClipName = (filePath: string) => {
+    const suggested = filePath.split(/[\\/]/).pop() || 'Clip';
+    if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+      try {
+        const res = window.prompt('Enter clip name (required)', suggested);
+        const trimmed = (res ?? suggested).trim();
+        if (trimmed) return trimmed;
+      } catch (err) {
+        console.warn('[library] prompt failed, using filename', err);
+      }
+    }
+    return suggested;
+  };
+
   const handleAddVideoFromLibrary = (item: MediaLibraryItem) => {
     setSession((prev) => {
       const existing = prev.videoPaths ?? [];
-      return { ...prev, videoPaths: [...existing, item.path] };
+      const nextNames = { ...(prev.videoNames ?? {}) };
+      nextNames[item.path] = item.name;
+      return { ...prev, videoPaths: [...existing, item.path], videoNames: nextNames };
     });
     setStatus(`Added ${item.name} from library`);
-    setAddVideoModalOpen(false);
     void updateProjectDirty(true);
   };
 
   const handleBrowseAndAddToLibrary = async () => {
     try {
       const paths = await openVideoFiles();
+      console.info('[library] file picker returned', paths);
       if (!paths || paths.length === 0) return;
+      let lastId: string | null = null;
       for (const p of paths) {
-        let name = window.prompt('Enter clip name (required)', p.split(/[\\/]/).pop() || 'Clip');
-        if (!name || !name.trim()) continue;
+        const name = getClipName(p);
         const item = await addLibraryEntryFromPath(p, name);
-        handleAddVideoFromLibrary(item);
+        lastId = item.id;
+      }
+      if (lastId) {
+        setLibrarySelectedId(lastId);
+        setCollapsed((prev) => ({ ...prev, library: false }));
+        console.info('[library] last added selected', lastId);
+      } else {
+        console.info('[library] no items added after picker');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      console.error('[library] add flow failed', err);
     }
+  };
+
+  const validateLicenseKey = (key: string) => {
+    const normalized = key.trim().toUpperCase();
+    return /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(normalized);
+  };
+
+  const ensureLicensed = useCallback(() => {
+    if (isLicensed) return true;
+    setLicenseModalOpen(true);
+    setLicenseError(null);
+    setStatus('Trial: upgrade to unlock project actions');
+    return false;
+  }, [isLicensed]);
+
+  const handleValidateLicense = () => {
+    const trimmed = licenseKeyInput.trim();
+    if (!validateLicenseKey(trimmed)) {
+      setLicenseError('Invalid product key format. Use XXXX-XXXX-XXXX-XXXX.');
+      return;
+    }
+    setLicenseStatus({ licensed: true, key: trimmed });
+    setLicenseError(null);
+    setLicenseModalOpen(false);
+    setStatus('License activated');
   };
 
   const toggleSection = (key: keyof typeof collapsed) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const getClipLabel = useCallback((path: string) => {
+    const names = session.videoNames ?? {};
+    if (names[path]) return names[path];
+    const hit = library.find((i) => i.path === path);
+    if (hit?.name) return hit.name;
+    return path.split(/[\\/]/).pop() || path;
+  }, [library, session.videoNames]);
+
+  const clipNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    (session.videoPaths ?? []).forEach((p) => { map[p] = getClipLabel(p); });
+    return map;
+  }, [session.videoPaths, getClipLabel]);
+  const projectLocked = !isLicensed;
+
+  const openClipContextMenu = (path: string, index: number, x: number, y: number) => {
+    setContextMenu({ path, index, x, y });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+
+  const removeClipAt = (idx: number) => {
+    setSession((prev) => {
+      const next = (prev.videoPaths ?? []).slice();
+      next.splice(idx, 1);
+      return { ...prev, videoPaths: next };
+    });
+    setContextMenu(null);
+    void updateProjectDirty(true);
+  };
+
+  const duplicateClipAt = (idx: number) => {
+    setSession((prev) => {
+      const paths = prev.videoPaths ?? [];
+      if (idx < 0 || idx >= paths.length) return prev;
+      const dup = paths[idx];
+      const next = paths.slice();
+      next.splice(idx + 1, 0, dup);
+      return { ...prev, videoPaths: next };
+    });
+    setContextMenu(null);
+    void updateProjectDirty(true);
+  };
+
+  const startRenameClip = (path: string, index: number) => {
+    setRenameTarget({ path, index, name: getClipLabel(path) });
+    setContextMenu(null);
+  };
+
+  const applyRenameClip = async () => {
+    if (!renameTarget) return;
+    const { path, name } = renameTarget;
+    const trimmed = name.trim();
+    const nextName = trimmed || getClipLabel(path);
+    const hit = library.find((i) => i.path === path);
+    if (hit) {
+      await updateLibraryName(path, nextName);
+    } else {
+      setSession((prev) => ({ ...prev, videoNames: { ...(prev.videoNames ?? {}), [path]: nextName } }));
+    }
+    setStatus(`Renamed clip to ${nextName}`);
+    setRenameTarget(null);
+    void updateProjectDirty(true);
+  };
+
+  const handleClipInfo = (path: string) => {
+    const label = getClipLabel(path);
+    const dur = videoDurations[path];
+    setStatus(`Clip: ${label} (${dur ? `${dur.toFixed(1)}s` : 'n/a'})`);
+    setContextMenu(null);
+  };
+
+  const handleClipEdit = (path: string) => {
+    const hit = library.find((i) => i.path === path);
+    if (hit) {
+      setLibrarySelectedId(hit.id);
+      setCollapsed((prev) => ({ ...prev, library: false }));
+    }
+    setContextMenu(null);
+  };
+
   const handleLoadProject = async () => {
+    if (!ensureLicensed()) return;
     try {
       const opened = await openProject();
       if (opened) {
         const project = opened.project as any;
         const nextVideos = Array.isArray(project?.clips) ? project.clips.map((c: any) => c?.path).filter(Boolean) : [];
+        const nextNames: Record<string, string> = {};
+        if (Array.isArray(project?.clips)) {
+          project.clips.forEach((c: any) => {
+            if (c?.path && c.label) nextNames[c.path] = c.label;
+          });
+        }
         setSession((prev) => ({
           ...prev,
           projectSavePath: opened.path,
           audioPath: project?.audio?.path ?? undefined,
           videoPaths: nextVideos,
+          videoNames: nextNames,
           playhead: typeof project?.playhead === 'number' ? project.playhead : 0,
           layers: Array.isArray(project?.layers) ? project.layers : [],
         }));
@@ -475,6 +720,7 @@ const App = () => {
   };
 
   const handleSaveProject = async () => {
+    if (!ensureLicensed()) return;
     try {
       const project = buildProjectFromSession();
       let target = session.projectSavePath;
@@ -495,6 +741,7 @@ const App = () => {
   };
 
   const handleSaveProjectAs = async () => {
+    if (!ensureLicensed()) return;
     try {
       const defaultPath = session.projectSavePath ?? await getDefaultProjectPath();
       const target = await chooseProjectSavePath(defaultPath);
@@ -512,6 +759,7 @@ const App = () => {
   };
 
   const handleStartRender = async () => {
+    if (!ensureLicensed()) return;
     try {
       const project = buildProjectFromSession();
       let target = session.projectSavePath;
@@ -786,15 +1034,26 @@ const App = () => {
     for (const layer of layers) {
       const x = (layer.x ?? 0) * logicalW;
       const y = (layer.y ?? 0) * logicalH;
-      const baseW = layer.width ?? getMaxVideoWidth();
+      const maxVideoW = getMaxVideoWidth();
+      const scale = maxVideoW > 0 ? logicalW / maxVideoW : 1;
+      const baseW = layer.width ?? maxVideoW;
       const baseH = layer.height ?? Math.round(baseW * 9 / 16);
+      const drawW = Math.max(10, baseW * scale);
+      const drawH = Math.max(10, baseH * scale);
       if (layer.type === 'spectrograph') {
         const am = audioMotionRef.current;
         if (am?.canvas) {
           try { am.draw?.(); } catch {}
           const srcCanvas = am.canvas as HTMLCanvasElement;
           const cropH = Math.floor(srcCanvas.height * 0.8);
-          ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, cropH, x, y, baseW, baseH);
+          ctx.drawImage(srcCanvas, 0, 0, srcCanvas.width, cropH, x, y, drawW, drawH);
+        } else {
+          // Fallback visual if analyser not ready
+          ctx.save();
+          ctx.fillStyle = layer.color ?? '#7ea5ff';
+          ctx.globalAlpha = 0.7;
+          ctx.fillRect(x, y, drawW, drawH);
+          ctx.restore();
         }
       } else if (layer.type === 'text') {
         ctx.save();
@@ -980,10 +1239,14 @@ const App = () => {
                     void updateProjectDirty(true);
                   }}
                   durations={videoDurations}
+                  names={clipNames}
+                  missingPaths={missingPaths}
                   totalDuration={audioDuration}
                   zoom={timelineZoom}
                   scroll={timelineScroll}
                   playhead={session.playhead ?? 0}
+                  theme={theme}
+                  onContextMenu={openClipContextMenu}
                   onDoubleClick={(path) => {
                     const hit = (library.find((i) => i.path === path));
                     if (hit) {
@@ -1030,6 +1293,7 @@ const App = () => {
                         </div>
                       </div>
                       <button className="pill-btn" type="button" onClick={() => openEditLayer(layer)}>Edit</button>
+                      <button className="pill-btn" type="button" onClick={() => duplicateLayer(layer)}>Duplicate</button>
                       <button className="pill-btn" type="button" onClick={() => deleteLayer(layer.id)}>Delete</button>
                     </div>
                   ))}
@@ -1060,68 +1324,97 @@ const App = () => {
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Color
-                      <input type="color" value={layerDraft.color ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, color: e.target.value }))} />
+                      <input type="color" value={layerDraft.color ?? '#ffffff'} onChange={(e) => updateLayerDraftField({ color: e.target.value })} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Outline Color
-                      <input type="color" value={layerDraft.outlineColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineColor: e.target.value }))} />
+                      <input type="color" value={layerDraft.outlineColor ?? '#000000'} onChange={(e) => updateLayerDraftField({ outlineColor: e.target.value })} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Outline Width
-                      <input type="number" min={0} max={20} value={layerDraft.outlineWidth ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, outlineWidth: Number(e.target.value) }))} />
+                      <input type="range" min={0} max={20} value={layerDraft.outlineWidth ?? 0} onChange={(e) => updateLayerDraftField({ outlineWidth: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}> {layerDraft.outlineWidth ?? 0}px</span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Color
-                      <input type="color" value={layerDraft.glowColor ?? '#ffffff'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowColor: e.target.value }))} />
+                      <input type="color" value={layerDraft.glowColor ?? '#ffffff'} onChange={(e) => updateLayerDraftField({ glowColor: e.target.value })} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Amount
-                      <input type="number" min={0} max={50} value={layerDraft.glowAmount ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowAmount: Number(e.target.value) }))} />
+                      <input type="range" min={0} max={50} value={layerDraft.glowAmount ?? 0} onChange={(e) => updateLayerDraftField({ glowAmount: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.glowAmount ?? 0}px</span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Opacity
-                      <input type="number" min={0} max={1} step={0.05} value={layerDraft.glowOpacity ?? 0.4} onChange={(e) => setLayerDraft((prev) => ({ ...prev, glowOpacity: Number(e.target.value) }))} />
+                      <input type="range" min={0} max={1} step={0.05} value={layerDraft.glowOpacity ?? 0.4} onChange={(e) => updateLayerDraftField({ glowOpacity: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.glowOpacity ?? 0.4).toFixed(2)}</span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Shadow Color
-                      <input type="color" value={layerDraft.shadowColor ?? '#000000'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowColor: e.target.value }))} />
+                      <input type="color" value={layerDraft.shadowColor ?? '#000000'} onChange={(e) => updateLayerDraftField({ shadowColor: e.target.value })} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Shadow Distance
-                      <input type="number" min={0} max={50} value={layerDraft.shadowDistance ?? 0} onChange={(e) => setLayerDraft((prev) => ({ ...prev, shadowDistance: Number(e.target.value) }))} />
+                      <input type="range" min={0} max={50} value={layerDraft.shadowDistance ?? 0} onChange={(e) => updateLayerDraftField({ shadowDistance: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.shadowDistance ?? 0}px</span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       X (%)
-                      <input type="number" min={0} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, x: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
+                      <input type="range" min={0} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ x: Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{Math.round((layerDraft.x ?? 0) * 100)}%</span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Y (%)
-                      <input type="number" min={0} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => setLayerDraft((prev) => ({ ...prev, y: Math.min(100, Math.max(0, Number(e.target.value))) / 100 }))} />
+                      <input type="range" min={0} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ y: Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{Math.round((layerDraft.y ?? 0) * 100)}%</span>
                     </label>
-                    {layerDraft.type === 'spectrograph' && (
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        Mode
-                        <select value={layerDraft.mode ?? 'bar'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' }))}>
-                          <option value="bar">Bar</option>
-                          <option value="line">Line</option>
-                          <option value="solid">Solid</option>
-                          <option value="dots">Dots</option>
-                        </select>
-                      </label>
-                    )}
+                {layerDraft.type === 'spectrograph' && (
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    Mode
+                    <select value={layerDraft.mode ?? 'bar'} onChange={(e) => updateLayerDraftField({ mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' })}>
+                      <option value="bar">Bar</option>
+                      <option value="line">Line</option>
+                      <option value="solid">Solid</option>
+                      <option value="dots">Dots</option>
+                    </select>
+                  </label>
+                )}
+                {layerDraft.type === 'spectrograph' && (
+                  <>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Width (px)
+                      <input type="number" min={50} max={4000} value={Math.round(layerDraft.width ?? getMaxVideoWidth())} onChange={(e) => updateLayerDraftField({ width: Number(e.target.value) })} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Height (px)
+                      <input type="number" min={50} max={3000} value={Math.round(layerDraft.height ?? Math.round(getMaxVideoWidth() * 9 / 16))} onChange={(e) => updateLayerDraftField({ height: Number(e.target.value) })} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Low Cut (Hz)
+                      <input type="range" min={10} max={500} value={layerDraft.lowCutHz ?? 40} onChange={(e) => updateLayerDraftField({ lowCutHz: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.lowCutHz ?? 40} Hz</span>
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      High Cut (Hz)
+                      <input type="range" min={2000} max={20000} step={100} value={layerDraft.highCutHz ?? 16000} onChange={(e) => updateLayerDraftField({ highCutHz: Number(e.target.value) })} />
+                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.highCutHz ?? 16000} Hz</span>
+                    </label>
+                  </>
+                )}
                     {layerDraft.type === 'text' && (
                       <>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           Text
-                          <input type="text" value={layerDraft.text ?? ''} onChange={(e) => setLayerDraft((prev) => ({ ...prev, text: e.target.value }))} />
+                          <input type="text" value={layerDraft.text ?? ''} onChange={(e) => updateLayerDraftField({ text: e.target.value })} />
                         </label>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           Font
-                          <input type="text" value={layerDraft.font ?? 'Segoe UI'} onChange={(e) => setLayerDraft((prev) => ({ ...prev, font: e.target.value }))} />
+                          <input type="text" value={layerDraft.font ?? 'Segoe UI'} onChange={(e) => updateLayerDraftField({ font: e.target.value })} />
                         </label>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           Font Size
-                          <input type="number" min={8} max={96} value={layerDraft.fontSize ?? 12} onChange={(e) => setLayerDraft((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} />
+                          <input type="range" min={8} max={96} value={layerDraft.fontSize ?? 12} onChange={(e) => updateLayerDraftField({ fontSize: Number(e.target.value) })} />
+                          <span className="muted" style={{ fontSize: 12 }}>{layerDraft.fontSize ?? 12}px</span>
                         </label>
                       </>
                     )}
@@ -1169,7 +1462,9 @@ const App = () => {
                         style={{
                           padding: '6px 8px',
                           cursor: 'pointer',
-                          background: librarySelectedId === item.id ? 'var(--panel-alt)' : 'transparent',
+                          background: missingPaths.has(item.path)
+                            ? '#4a2a2a'
+                            : (librarySelectedId === item.id ? 'var(--panel-alt)' : 'transparent'),
                           borderBottom: '1px solid var(--border)',
                         }}
                       >
@@ -1245,12 +1540,47 @@ const App = () => {
           </div>
         )}
 
-        <div className="right section-block">
+        {licenseModalOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }} onClick={() => setLicenseModalOpen(false)}>
+            <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 520, maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Upgrade to Full Version</h3>
+              <div style={{ background: '#f3f4f6', color: '#111', borderRadius: 8, padding: 12, marginBottom: 12, border: '1px solid #e5e7eb' }}>
+                <a href="https://muvidgen.sorryneedboost.com" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block', fontFamily: 'Segoe UI, sans-serif' }}>
+                  <strong style={{ fontSize: '1.1em', color: '#000' }}>Purchase Now: </strong>
+                  <div style={{ fontStyle: 'italic', color: '#666', fontSize: '0.85em', marginTop: 6, lineHeight: 1.5, maxWidth: 500 }}>
+                    Lifetime license that includes access to all, and future, features.
+                  </div>
+                </a>
+              </div>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                <span style={{ fontWeight: 600 }}>Enter Product Key</span>
+                <input
+                  type="text"
+                  value={licenseKeyInput}
+                  onChange={(e) => setLicenseKeyInput(e.target.value)}
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel-alt)', color: 'var(--text)' }}
+                />
+              </label>
+              {licenseError && <div style={{ color: '#c0392b', marginBottom: 10 }}>{licenseError}</div>}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="pill-btn" type="button" onClick={() => setLicenseModalOpen(false)}>
+                  <span>Close</span>
+                </button>
+                <button className="pill-btn" type="button" onClick={handleValidateLicense}>
+                  <span>Activate</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="right section-block" style={{ opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
           <div className="section-header">
             <h2 style={{ margin: 0 }}>PROJECT</h2>
-            <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} />
-            <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} />
-            <PillIconButton icon="ui/icon-project-save.png" label="Save" onClick={handleSaveProject} />
+            <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
+            <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
+            <PillIconButton icon="ui/icon-project-save.png" label="Save" onClick={handleSaveProject} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text)', fontWeight: 600 }}>
                 Theme
@@ -1272,33 +1602,61 @@ const App = () => {
             </div>
           </div>
           {!collapsed.project && (
-            <div className="section-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                <h2 style={{ margin: 0 }}>RENDER</h2>
-                <PillIconButton icon="ui/icon-sliders.png" label="Render" onClick={handleStartRender} disabled={!session.projectSavePath || isRendering} />
-                <PillIconButton icon="ui/icon-x.png" label="Cancel" onClick={() => cancelRender()} disabled={!isRendering} />
-                <button className="pill-btn" type="button" onClick={() => { setLogs([]); setRenderElapsedMs(0); setRenderTotalMs(0); }}>
-                  <span>Clear Logs</span>
+            <div className="section-body" style={{ position: 'relative' }}>
+              {projectLocked && (
+                <button
+                  type="button"
+                  onClick={() => setLicenseModalOpen(true)}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '12px 16px',
+                    background: 'rgba(0, 0, 0, 0.65)',
+                    color: '#f5f5f5',
+                    fontSize: 16,
+                    fontWeight: 700,
+                    border: '1px dashed var(--border)',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    lineHeight: 1.4,
+                    zIndex: 2,
+                  }}
+                >
+                  Trial Edition: Click here to upgrade to the Full Version.
                 </button>
-                <span style={{ color: '#666' }}>Elapsed: {Math.floor((renderElapsedMs/1000))}s</span>
-                {renderTotalMs > 0 && (
-                  <span style={{ color: '#666' }}>
-                    ETA: {Math.max(0, Math.floor((renderTotalMs - renderElapsedMs)/1000))}s
-                  </span>
-                )}
-                <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
-              </div>
-              {renderTotalMs > 0 && (
-                <div style={{ marginTop: '0.5rem', height: 10, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs / renderTotalMs) * 100)).toFixed(1)}%`, background: '#3f51b5' }} />
-                </div>
               )}
-              <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
-                {logs.length === 0 ? (
-                  <div style={{ color: '#777' }}>Render logs will appear here...</div>
-                ) : (
-                  logs.map((l, i) => (<div key={i}>{l}</div>))
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                  <h2 style={{ margin: 0 }}>RENDER</h2>
+                  <PillIconButton icon="ui/icon-sliders.png" label="Render" onClick={handleStartRender} disabled={projectLocked || !session.projectSavePath || isRendering} />
+                  <PillIconButton icon="ui/icon-x.png" label="Cancel" onClick={() => cancelRender()} disabled={projectLocked || !isRendering} />
+                  <button className="pill-btn" type="button" onClick={() => { setLogs([]); setRenderElapsedMs(0); setRenderTotalMs(0); }}>
+                    <span>Clear Logs</span>
+                  </button>
+                  <span style={{ color: '#666' }}>Elapsed: {Math.floor((renderElapsedMs/1000))}s</span>
+                  {renderTotalMs > 0 && (
+                    <span style={{ color: '#666' }}>
+                      ETA: {Math.max(0, Math.floor((renderTotalMs - renderElapsedMs)/1000))}s
+                    </span>
+                  )}
+                  <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
+                </div>
+                {renderTotalMs > 0 && (
+                  <div style={{ marginTop: '0.5rem', height: 10, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, (renderElapsedMs / renderTotalMs) * 100)).toFixed(1)}%`, background: '#3f51b5' }} />
+                  </div>
                 )}
+                <div style={{ marginTop: '0.5rem', padding: '8px', background: '#0b0b0b', border: '1px solid #333', borderRadius: 4, maxHeight: 200, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }}>
+                  {logs.length === 0 ? (
+                    <div style={{ color: '#777' }}>Render logs will appear here...</div>
+                  ) : (
+                    logs.map((l, i) => (<div key={i}>{l}</div>))
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1332,6 +1690,51 @@ const App = () => {
           )}
         </div>
       </div>
+
+      {contextMenu && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100 }} onClick={closeContextMenu}>
+          <div
+            style={{
+              position: 'absolute',
+              top: contextMenu.y,
+              left: contextMenu.x,
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: 6,
+              minWidth: 160,
+              boxShadow: '0 8px 20px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => startRenameClip(contextMenu.path, contextMenu.index)}>Rename</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipEdit(contextMenu.path)}>Edit</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => duplicateClipAt(contextMenu.index)}>Duplicate</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipInfo(contextMenu.path)}>File Info</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => removeClipAt(contextMenu.index)}>Remove</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setRenameTarget(null)}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 8, padding: 16, width: 360 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Rename Clip</h3>
+            <input
+              type="text"
+              style={{ width: '100%', marginBottom: 10 }}
+              value={renameTarget.name}
+              onChange={(e) => setRenameTarget((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="pill-btn" type="button" onClick={() => setRenameTarget(null)}>Cancel</button>
+              <button className="pill-btn" type="button" onClick={applyRenameClip}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

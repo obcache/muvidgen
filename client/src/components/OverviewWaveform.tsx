@@ -119,7 +119,7 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
     const resizeObserver = new ResizeObserver(() => draw());
     resizeObserver.observe(canvas);
     return () => resizeObserver.disconnect();
-  }, [duration, playhead, peaks, hasAudio]);
+  }, [duration, playhead, peaks, hasAudio, zoom, scroll]);
 
   const onClick: React.MouseEventHandler<HTMLCanvasElement> = (e) => {
     const canvas = canvasRef.current;
