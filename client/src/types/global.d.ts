@@ -14,6 +14,7 @@ export interface ElectronAPI {
   openVideoFiles(): Promise<string[]>;
   readFileBuffer(path: string): Promise<Uint8Array>;
   fileExists(path: string): Promise<boolean>;
+  machineFingerprint(): Promise<string>;
   chooseProjectSavePath(defaultPath?: string): Promise<string | undefined>;
   startRender(projectJsonPath: string): Promise<void>;
   cancelRender(): Promise<void>;

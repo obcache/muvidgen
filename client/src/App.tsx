@@ -27,6 +27,7 @@ import {
   saveMediaLibrary as persistMediaLibrary,
   probeMediaFile,
   fileExists,
+  getMachineFingerprint,
 } from './state/storage';
 import type { SessionState } from './types/session';
 // ProjectSchema usage comes via storage types; no direct import needed here.
@@ -37,9 +38,14 @@ import Storyboard from './components/Storyboard';
 import VolumeSlider from './components/VolumeSlider';
 import type { ProjectSchema, LayerConfig, LayerType } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
+import { base64UrlDecode } from './utils/b64';
 
 type Theme = 'dark' | 'light';
 type WebAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
+
+const LICENSE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+REPLACE_WITH_REAL_PUBLIC_KEY
+-----END PUBLIC KEY-----`;
 
 type LocalSession = SessionState & {
   audioPath?: string;
@@ -85,6 +91,7 @@ const App = () => {
   const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ path: string; index: number; x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ path: string; index: number; name: string } | null>(null);
+  const [machineId, setMachineId] = useState<string>('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     preview: true,
     audio: false,
@@ -107,6 +114,16 @@ const App = () => {
   const [licenseKeyInput, setLicenseKeyInput] = useState('');
   const [licenseError, setLicenseError] = useState<string | null>(null);
   const isLicensed = licenseStatus.licensed;
+  useEffect(() => {
+    void (async () => {
+      try {
+        const fp = await getMachineFingerprint();
+        setMachineId(fp);
+      } catch {
+        setMachineId('');
+      }
+    })();
+  }, []);
   const getMaxVideoWidth = useCallback(() => {
     let max = 0;
     videoPoolRef.current.forEach((v) => {
@@ -232,6 +249,72 @@ const App = () => {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
+
+  const importPublicKey = async (pem: string) => {
+    const clean = pem.replace(/-----BEGIN PUBLIC KEY-----/g, '').replace(/-----END PUBLIC KEY-----/g, '').replace(/\s+/g, '');
+    const derBytes = base64UrlDecode(clean.replace(/\+/g, '-').replace(/\//g, '_'));
+    const der = derBytes.buffer.slice(derBytes.byteOffset, derBytes.byteOffset + derBytes.byteLength) as ArrayBuffer;
+    return crypto.subtle.importKey(
+      'spki',
+      der,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+  };
+
+  const verifyLicenseToken = useCallback(async (token: string): Promise<{ ok: boolean; err?: string; payload?: any }> => {
+    if (!token || token.split('.').length !== 3) return { ok: false, err: 'Invalid token format' };
+    const [h, p, s] = token.split('.');
+    let payload: any;
+    let header: any;
+    try {
+      header = JSON.parse(new TextDecoder().decode(base64UrlDecode(h)));
+    } catch {
+      return { ok: false, err: 'Invalid header' };
+    }
+    try {
+      payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(p)));
+    } catch {
+      return { ok: false, err: 'Invalid payload' };
+    }
+    if (header.alg && header.alg !== 'RS256') return { ok: false, err: 'Unsupported signature algorithm' };
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.nbf && now < payload.nbf) return { ok: false, err: 'License not active yet' };
+    if (payload.exp && now > payload.exp) return { ok: false, err: 'License expired' };
+    if (payload.hwid && machineId && payload.hwid !== machineId) return { ok: false, err: 'License tied to different machine' };
+
+    if (LICENSE_PUBLIC_KEY_PEM.includes('REPLACE_WITH_REAL_PUBLIC_KEY')) {
+      // dev mode: skip signature check
+      return { ok: true, payload };
+    }
+    const pub = await importPublicKey(LICENSE_PUBLIC_KEY_PEM);
+    const signed = new TextEncoder().encode(`${h}.${p}`);
+    const sigBytes = base64UrlDecode(s);
+    const sig = sigBytes.buffer.slice(sigBytes.byteOffset, sigBytes.byteOffset + sigBytes.byteLength) as ArrayBuffer;
+    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', pub, sig, signed);
+    return ok ? { ok: true, payload } : { ok: false, err: 'Signature verification failed' };
+  }, [machineId]);
+
+  const revalidateStoredLicense = useCallback(async () => {
+    if (!machineId) return;
+    const key = licenseStatus.key;
+    if (!key) {
+      setLicenseStatus({ licensed: false, key: '' });
+      return;
+    }
+    const res = await verifyLicenseToken(key);
+    if (res.ok) {
+      setLicenseStatus({ licensed: true, key });
+    } else {
+      setLicenseStatus({ licensed: false, key });
+    }
+  }, [licenseStatus.key, machineId, verifyLicenseToken]);
+
+  useEffect(() => {
+    void revalidateStoredLicense();
+  }, [revalidateStoredLicense]);
+
 
   // Check missing media (audio, videos, library) when paths change
   useEffect(() => {
@@ -579,8 +662,8 @@ const App = () => {
   };
 
   const validateLicenseKey = (key: string) => {
-    const normalized = key.trim().toUpperCase();
-    return /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(normalized);
+    const trimmed = key.trim();
+    return trimmed.split('.').length === 3;
   };
 
   const ensureLicensed = useCallback(() => {
@@ -591,10 +674,21 @@ const App = () => {
     return false;
   }, [isLicensed]);
 
-  const handleValidateLicense = () => {
+  const handleValidateLicense = async () => {
     const trimmed = licenseKeyInput.trim();
     if (!validateLicenseKey(trimmed)) {
-      setLicenseError('Invalid product key format. Use XXXX-XXXX-XXXX-XXXX.');
+      setLicenseError('Invalid product key. Please paste the full key string.');
+      return;
+    }
+    if (!machineId) {
+      setLicenseError('Machine ID unavailable. Please try again.');
+      return;
+    }
+    setLicenseError(null);
+    const res = await verifyLicenseToken(trimmed);
+    if (!res.ok) {
+      setLicenseError(res.err ?? 'License verification failed.');
+      setStatus('License validation failed');
       return;
     }
     setLicenseStatus({ licensed: true, key: trimmed });
