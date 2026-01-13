@@ -7,9 +7,9 @@
   --text-muted: #9ca3af;
   --border: #2a2f3a;
   --accent: #3f51b5;
-  --btn-bg: #1f2430;
+  --btn-bg: #12151b;
   --btn-bg-hover: #242b38;
-  --font-ui: 'Laritza', 'Orbitron', 'Exo 2', 'Rajdhani', 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
+  --font-ui: 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
 }
 
 @font-face {
@@ -147,14 +147,19 @@ body {
   font-family: var(--font-ui);
 }
 
-h2 { margin: 0 0 4px; letter-spacing: 0.2px; }
+h2 {
+  margin: 0;
+  letter-spacing: 3px;
+  font-family: 'Essen';
+  font-size: 22pt;
+}
 
 button {
   background: var(--btn-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 0px 0px;
 }
 button:hover { background: var(--btn-bg-hover); }
 
@@ -185,12 +190,12 @@ label { color: var(--text); }
   color: var(--text);
 }
 
-.muted { color: var(--text-muted); }
+.muted { color: var(--text-muted); font-size: 18px; font-family: var(--font-ui); }
 
-.grid { display: grid; grid-template-columns: 1fr; grid-auto-rows: min-content; gap: 18px; align-items: start; }
+.grid { display: grid; grid-template-columns: 1fr; grid-auto-rows: min-content; gap: 8px; align-items: start; }
 .left { display: none; }
 .right { min-width: 0; }
-.title-row { grid-column: 1 / -1; margin-top: 12px; }
+.title-row { grid-column: 1 / -1; margin-top: 4px; }
 .logo { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
 .icon-btn {
   display: inline-block;
@@ -198,6 +203,7 @@ label { color: var(--text); }
   border-radius: 10px;
   background-color: var(--panel);
   background-repeat: no-repeat;
+  padding: 4px 12px;
   background-position: center;
   background-size: 70%;
   cursor: pointer;
@@ -216,11 +222,11 @@ label { color: var(--text); }
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 12px;
+  padding: 4px 12px;
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 15px;
   cursor: pointer;
-  line-height: 1.2;
+  line-height: 1.0;
 }
 .pill-btn:hover { background-color: var(--btn-bg-hover); }
 .pill-btn:active { transform: translateY(1px); }
@@ -259,9 +265,9 @@ label { color: var(--text); }
   align-items: center;
   gap: 10px;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 0px solid var(--border);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 2px 10px;
 }
 
 .collapse-btn {
@@ -269,7 +275,7 @@ label { color: var(--text); }
   height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--btn-bg);
   color: var(--text);
   display: inline-flex;
   align-items: center;
@@ -284,9 +290,9 @@ label { color: var(--text); }
 .section-block {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px;
-  margin-bottom: 10px;
+  border-radius: 8px;
+  padding: 2px;
+  margin-bottom: 2px;
 }
 
 .section-body {

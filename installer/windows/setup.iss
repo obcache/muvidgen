@@ -3,9 +3,9 @@
 #define MyAppPublisher "omnibros"
 #define MyAppExeName "MuvidGen.exe"
 #define MyAppId "8A7E0C0A-0000-4000-8000-0000MUVIDGEN"
-#define LogoFile "E:\Production\Coding\muvidgen\docs\assets\muvidgen_setupWizard_logo.png"
-#define IconFile "E:\Production\Coding\muvidgen\docs\assets\muvidgen_noText_logo.ico"
-#define ShortcutFile "E:\Production\Coding\muvidgen\docs\assets\muvidgen_noText_logo.png"
+#define LogoFile "E:\Production\Coding\muvidgen\client\public\ui\muvidgen_setupWizard_logo.png"
+#define IconFile "E:\Production\Coding\muvidgen\client\public\ui\muvidgen_noText_logo.ico"
+#define ShortcutFile "E:\Production\Coding\muvidgen\client\public\ui\muvidgen_noText_logo.png"
 
 ; Adjust these source paths to your built app output locations
 #define AppBinDir "E:\Production\Coding\muvidgen\release\MuvidGen-win32-x64"             

@@ -108,10 +108,10 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
 
       if (!hasAudio) {
         ctx.fillStyle = '#e7b77a';
-        ctx.font = '12px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.font = '22px Essen, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('No audio selected', width / 2, height / 2);
+        ctx.fillText('Click to select audio file', width / 2, height / 2);
       }
     };
 

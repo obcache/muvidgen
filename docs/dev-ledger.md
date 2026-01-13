@@ -85,6 +85,33 @@ Rollback Strategy
 
 Add active entries here. Entries marked `Status: Complete` will be used to auto-generate commit messages and, upon commit, will be moved to the Changelog section with the commit hash.
 
+### [2026-01-05] Offline License UX + Signing Helper (Status: Draft)
+Author: dev
+
+Summary
+- Added offline public-key license verification (payload.signature), gated project actions with upgrade overlay, branded upgrade modal, and shipped a Node helper to generate/sign/verify licenses.
+
+Impact
+- Modules: client (App.tsx, UI), tooling (tools/license), docs (ledger)
+- Risk level: Medium (license UX gating and crypto surface)
+
+Commands/Steps
+- `node tools/license/sign-license.js generate-keypair --out tools/license/license-keypair.json`
+- `node tools/license/sign-license.js sign --private tools/license/license-keypair.json --payload payload.json --out license.txt`
+- `node tools/license/sign-license.js verify --public tools/license/license-keypair.json --license "<license>"`
+
+Artifacts
+- Updated: client/src/App.tsx; docs/dev-ledger.md
+- Added: tools/license/sign-license.js; tools/license/README.md
+
+Follow-ups
+- [ ] Replace LICENSE_PUBLIC_KEY_JWK in App.tsx with real public key
+- [ ] Set up a payload template with issuedAt/expiresAt and edition fields
+- [ ] Decide on final copy/styling for upgrade modal and CTA
+
+Rollback Strategy
+- Revert license gating UI in App.tsx and remove license helper folder; clear LICENSE_PUBLIC_KEY_JWK.
+
 ### [2025-11-03] Project Plan: Media Shuttle UI, Storyboard, and Python Renderer (Status: Planned)
 Author: dev
 
