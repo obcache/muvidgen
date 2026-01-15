@@ -36,6 +36,7 @@ const toFileURL = (absPath: string): string => {
     return 'file:///' + encodeURI(normalized);
   }
   // Fallback: treat as absolute-like
+  
   return 'file:///' + encodeURI(normalized.startsWith('/') ? normalized.slice(1) : normalized);
 };
 

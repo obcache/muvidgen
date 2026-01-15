@@ -8,13 +8,84 @@ import type { MediaLibraryItem } from '../common/project';
 import { spawn } from 'node:child_process';
 
 const SESSION_FILENAME = 'session.json';
+const SETTINGS_FILENAME = 'settings.json';
+
+type WindowState = {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  isMaximized?: boolean;
+};
+
+type SettingsState = {
+  window?: WindowState;
+};
 
 const getSessionFilePath = () => path.join(app.getPath('userData'), SESSION_FILENAME);
+const getSettingsFilePath = () => path.join(app.getPath('userData'), SETTINGS_FILENAME);
+
+const DEFAULT_WINDOW_STATE: WindowState = { width: 2400, height: 900 };
 
 async function ensureUserDataDir(): Promise<void> {
   const directory = app.getPath('userData');
   await fs.mkdir(directory, { recursive: true });
 }
+
+const readSettingsState = async (): Promise<SettingsState> => {
+  const filePath = getSettingsFilePath();
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as SettingsState;
+    }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn('[settings] Failed to read settings file:', error);
+    }
+  }
+  return {};
+};
+
+const loadWindowState = async (): Promise<WindowState> => {
+  const settings = await readSettingsState();
+  const state: Partial<WindowState> = settings.window ?? {};
+  const width = Number(state.width);
+  const height = Number(state.height);
+  const x = Number(state.x);
+  const y = Number(state.y);
+  const next: WindowState = {
+    width: Number.isFinite(width) ? Math.max(400, width) : DEFAULT_WINDOW_STATE.width,
+    height: Number.isFinite(height) ? Math.max(300, height) : DEFAULT_WINDOW_STATE.height,
+  };
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    next.x = x;
+    next.y = y;
+  }
+  if (state.isMaximized) {
+    next.isMaximized = true;
+  }
+  return next;
+};
+
+const saveWindowState = async (window: BrowserWindow): Promise<void> => {
+  const isMaximized = window.isMaximized();
+  const bounds = isMaximized ? window.getNormalBounds() : window.getBounds();
+  const settings = await readSettingsState();
+  const payload: SettingsState = {
+    ...settings,
+    window: {
+      width: bounds.width,
+      height: bounds.height,
+      x: bounds.x,
+      y: bounds.y,
+      isMaximized,
+    },
+  };
+  await ensureUserDataDir();
+  await fs.writeFile(getSettingsFilePath(), JSON.stringify(payload, null, 2), 'utf-8');
+};
 
 ipcMain.handle('session:load', async (): Promise<SessionState | undefined> => {
   const filePath = getSessionFilePath();
@@ -369,9 +440,12 @@ let currentRenderChild: import('node:child_process').ChildProcess | null = null;
 let projectDirty: boolean = false;
 
 async function createWindow(): Promise<void> {
+  const windowState = await loadWindowState();
   const win = new BrowserWindow({
-    width: 1200,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -383,6 +457,12 @@ async function createWindow(): Promise<void> {
   });
 
   mainWindow = win;
+  if (windowState.isMaximized) {
+    win.maximize();
+  }
+  win.on('close', () => {
+    void saveWindowState(win);
+  });
   const indexHtml = await resolveRendererEntryPoint();
 
   try {

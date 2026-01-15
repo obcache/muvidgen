@@ -17,11 +17,14 @@ export interface LayerConfigBase {
   y: number; // 0..1 relative position
   width?: number; // pixels
   height?: number; // pixels
+  rotate?: number; // degrees
+  opacity?: number; // 0..1
 }
 
 export interface SpectrographLayer extends LayerConfigBase {
   type: 'spectrograph';
   mode: 'bar' | 'line' | 'solid' | 'dots';
+  invert?: boolean;
   outlineColor?: string;
   outlineWidth?: number;
   glowColor?: string;
