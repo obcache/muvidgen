@@ -48,10 +48,11 @@ type LocalSession = SessionState & {
   playhead?: number;
   layers?: LayerConfig[];
   theme?: Theme;
+  canvasPreset?: 'landscape' | 'portrait';
   videoNames?: Record<string, string>;
 };
 
-const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark', videoNames: {} };
+const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark', canvasPreset: 'landscape', videoNames: {} };
 type LicensePayload = { name?: string; email?: string; edition?: string; issuedAt?: number; expiresAt?: number };
 const FONT_FACE_OPTIONS = [
   'Segoe UI',
@@ -197,6 +198,7 @@ const App = () => {
   const [showNotes, setShowNotes] = useState<boolean>(false);
   const [videoDurations, setVideoDurations] = useState<Record<string, number>>({});
   const [theme, setThemeChoice] = useState<Theme>('dark');
+  const [canvasPreset, setCanvasPreset] = useState<'landscape' | 'portrait'>('landscape');
   const [overviewPeaks, setOverviewPeaks] = useState<number[]>([]);
   const [volume, setVolume] = useState<number>(0.85);
   const waveRef = useRef<WaveformHandle | null>(null);
@@ -205,6 +207,11 @@ const App = () => {
   const [timelineZoom, setTimelineZoom] = useState<number>(1);
   const [timelineScroll, setTimelineScroll] = useState<number>(0);
   const layers = useMemo(() => session.layers ?? [], [session.layers]);
+  const canvasSize = useMemo(() => (
+    canvasPreset === 'portrait'
+      ? { width: 1080, height: 1920 }
+      : { width: 1920, height: 1080 }
+  ), [canvasPreset]);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
@@ -217,8 +224,6 @@ const App = () => {
   const previewQueuedRef = useRef<boolean>(false);
   const spectroCacheRef = useRef<HTMLCanvasElement | null>(null);
   const spectroWorkRef = useRef<HTMLCanvasElement | null>(null);
-  const BASE_PREVIEW_WIDTH = 1920;
-  const BASE_PREVIEW_HEIGHT = 1080;
   const USE_AUDIO_MOTION = false;
   const [library, setLibrary] = useState<MediaLibraryItem[]>([]);
   const [librarySelectedId, setLibrarySelectedId] = useState<string | null>(null);
@@ -249,14 +254,6 @@ const App = () => {
   const [licenseError, setLicenseError] = useState<string | null>(null);
   const [validatingLicense, setValidatingLicense] = useState(false);
   const isLicensed = licenseStatus.licensed;
-  const getMaxVideoWidth = useCallback(() => {
-    let max = 0;
-    videoPoolRef.current.forEach((v) => {
-      if (v.videoWidth && v.videoWidth > max) max = v.videoWidth;
-    });
-    return max || 640;
-  }, []);
-
   const loadLibrary = useCallback(async () => {
     try {
       const items = await loadMediaLibrary();
@@ -375,6 +372,18 @@ const App = () => {
     void loadLibrary();
   }, [loadLibrary]);
 
+  const projectTitle = useMemo(() => {
+    const path = session.projectSavePath;
+    if (!path) return '';
+    const name = path.split(/[\\/]/).pop() || '';
+    return name;
+  }, [session.projectSavePath]);
+
+  useEffect(() => {
+    const base = 'muvid';
+    document.title = projectTitle ? `${base} - ${projectTitle}` : base;
+  }, [projectTitle]);
+
   // Check missing media (audio, videos, library) when paths change
   useEffect(() => {
     const checkMissing = async () => {
@@ -398,10 +407,22 @@ const App = () => {
     }
   }, [session.theme]);
 
+  // Sync canvas preset from session load
+  useEffect(() => {
+    if (session.canvasPreset === 'portrait' || session.canvasPreset === 'landscape') {
+      setCanvasPreset(session.canvasPreset);
+    }
+  }, [session.canvasPreset]);
+
   // Persist theme into session for project-level saves
   useEffect(() => {
     setSession((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
   }, [theme]);
+
+  // Persist canvas preset into session for project-level saves
+  useEffect(() => {
+    setSession((prev) => (prev.canvasPreset === canvasPreset ? prev : { ...prev, canvasPreset }));
+  }, [canvasPreset]);
 
   // Auto-expand preview when media or layers are present
   useEffect(() => {
@@ -420,7 +441,7 @@ const App = () => {
   }, [audioDuration]);
 
   const startNewLayer = (type: LayerType) => {
-    const baseWidth = getMaxVideoWidth();
+    const baseWidth = canvasSize.width;
     setLayerDraft({
       id: makeId(),
       type,
@@ -429,8 +450,9 @@ const App = () => {
       y: 0.05,
       rotate: 0,
       opacity: 1,
+      reverse: false,
       width: baseWidth,
-      height: Math.round(baseWidth * 9 / 16),
+      height: Math.round(baseWidth * (canvasSize.height / canvasSize.width)),
       lowCutHz: 40,
       highCutHz: 16000,
       mode: type === 'spectrograph' ? 'bar' : undefined,
@@ -453,12 +475,13 @@ const App = () => {
     if (normalized.type === 'spectrograph') {
       normalized.mode = normalized.mode === 'line' || normalized.mode === 'solid' || normalized.mode === 'dots' ? normalized.mode : 'bar';
       if (!normalized.width || !normalized.height) {
-        const w = getMaxVideoWidth();
+        const w = canvasSize.width;
         normalized.width = w;
-        normalized.height = Math.round(w * 9 / 16);
+        normalized.height = Math.round(w * (canvasSize.height / canvasSize.width));
       }
       normalized.opacity = Number.isFinite(normalized.opacity as number) ? normalized.opacity : 1;
       normalized.rotate = Number.isFinite(normalized.rotate as number) ? normalized.rotate : 0;
+      normalized.reverse = !!normalized.reverse;
       normalized.invert = !!normalized.invert;
       normalized.lowCutHz = Number.isFinite(normalized.lowCutHz as number) ? normalized.lowCutHz : 40;
       normalized.highCutHz = Number.isFinite(normalized.highCutHz as number) ? normalized.highCutHz : 16000;
@@ -468,6 +491,7 @@ const App = () => {
       normalized.fontSize = Number(normalized.fontSize ?? 12);
       normalized.opacity = Number.isFinite(normalized.opacity as number) ? normalized.opacity : 1;
       normalized.rotate = Number.isFinite(normalized.rotate as number) ? normalized.rotate : 0;
+      normalized.reverse = !!normalized.reverse;
     }
     return normalized;
   };
@@ -594,6 +618,9 @@ const App = () => {
     const playhead = typeof session.playhead === 'number' && Number.isFinite(session.playhead) ? session.playhead : 0;
     const metadata: Record<string, unknown> = {};
     if (session.theme) metadata.theme = session.theme;
+    if (canvasPreset) {
+      metadata.canvas = { preset: canvasPreset, width: canvasSize.width, height: canvasSize.height };
+    }
     return {
       version: '1.0',
       audio,
@@ -602,7 +629,7 @@ const App = () => {
       layers: session.layers ?? [],
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     };
-  }, [session.audioPath, session.playhead, session.videoPaths, session.layers, videoDurations]);
+  }, [canvasPreset, canvasSize.height, canvasSize.width, session.audioPath, session.playhead, session.videoPaths, session.layers, videoDurations]);
 
   useEffect(() => {
     // Load session
@@ -691,6 +718,18 @@ const App = () => {
       }
     }
     return suggested;
+  };
+
+  const promptNumeric = (label: string, value: number, min: number | null, max: number | null, onApply: (next: number) => void) => {
+    if (typeof window === 'undefined' || typeof window.prompt !== 'function') return;
+    const res = window.prompt(`Enter ${label}`, String(value));
+    if (res == null) return;
+    const parsed = Number(res);
+    if (!Number.isFinite(parsed)) return;
+    let next = parsed;
+    if (min != null) next = Math.max(min, next);
+    if (max != null) next = Math.min(max, next);
+    onApply(next);
   };
 
   const handleAddVideoFromLibrary = (item: MediaLibraryItem) => {
@@ -798,6 +837,30 @@ const App = () => {
     setStatus('License cleared (testing)');
   };
 
+  const handleNewProject = () => {
+    setSession(defaultState);
+    setAudioDuration(0);
+    setOverviewPeaks([]);
+    setTimelineZoom(1);
+    setTimelineScroll(0);
+    setVideoDurations({});
+    setLogs([]);
+    setRenderElapsedMs(0);
+    setRenderTotalMs(0);
+    setIsRendering(false);
+    setIsPlaying(false);
+    setLayerDraft({});
+    setLayerDialogOpen(false);
+    setContextMenu(null);
+    setRenameTarget(null);
+    setMissingPaths(new Set());
+    setAddVideoModalOpen(false);
+    setLibrarySelectedId(null);
+    setStatus('New project');
+    setError(null);
+    void updateProjectDirty(false);
+  };
+
   const toggleSection = (key: keyof typeof collapsed) => {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -881,6 +944,17 @@ const App = () => {
       setLibrarySelectedId(hit.id);
       setCollapsed((prev) => ({ ...prev, library: false }));
     }
+    setContextMenu(null);
+  };
+
+  const handleClipAddToLibrary = async (path: string) => {
+    const exists = library.some((item) => item.path === path);
+    if (exists) {
+      setContextMenu(null);
+      return;
+    }
+    const name = getClipLabel(path);
+    await addLibraryEntryFromPath(path, name);
     setContextMenu(null);
   };
 
@@ -1236,12 +1310,12 @@ const App = () => {
     const dpr = window.devicePixelRatio || 1;
     const logicalW = canvas.clientWidth || 800;
     const logicalH = canvas.clientHeight || 450;
-    const stageAspect = BASE_PREVIEW_WIDTH / BASE_PREVIEW_HEIGHT;
+    const stageAspect = canvasSize.width / canvasSize.height;
     const stageW = (logicalW / logicalH) > stageAspect ? (logicalH * stageAspect) : logicalW;
     const stageH = stageW / stageAspect;
     const stageX = (logicalW - stageW) / 2;
     const stageY = (logicalH - stageH) / 2;
-    const stageScale = stageW / BASE_PREVIEW_WIDTH;
+    const stageScale = stageW / canvasSize.width;
     canvas.width = Math.floor(logicalW * dpr);
     canvas.height = Math.floor(logicalH * dpr);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1287,13 +1361,14 @@ const App = () => {
     for (const layer of layers) {
       const x = stageX + (layer.x ?? 0) * stageW;
       const y = stageY + (layer.y ?? 0) * stageH;
-      const baseW = layer.width ?? BASE_PREVIEW_WIDTH;
-      const baseH = layer.height ?? Math.round(baseW * 9 / 16);
+      const baseW = layer.width ?? canvasSize.width;
+      const baseH = layer.height ?? Math.round(baseW * (canvasSize.height / canvasSize.width));
       const drawW = Math.max(10, baseW * stageScale);
       const drawH = Math.max(10, baseH * stageScale);
       const opacity = Math.min(1, Math.max(0, layer.opacity ?? 1));
       const rotateDeg = layer.rotate ?? 0;
       const rotateRad = (rotateDeg * Math.PI) / 180;
+      const reverse = !!layer.reverse;
       if (layer.type === 'spectrograph') {
         const analyser = spectroAnalyserRef.current;
         if (analyser) {
@@ -1346,6 +1421,7 @@ const App = () => {
           ctx.save();
           ctx.translate(x + drawW / 2, y + drawH / 2);
           ctx.rotate(rotateRad);
+          if (reverse) ctx.scale(-1, 1);
           ctx.globalAlpha = opacity;
           if (shadowDistance > 0) {
             ctx.save();
@@ -1392,6 +1468,7 @@ const App = () => {
             ctx.save();
             ctx.translate(x + drawW / 2, y + drawH / 2);
             ctx.rotate(rotateRad);
+            if (reverse) ctx.scale(-1, 1);
             ctx.globalAlpha = opacity;
             ctx.drawImage(cacheCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.restore();
@@ -1408,6 +1485,7 @@ const App = () => {
         ctx.save();
         ctx.translate(x + drawW / 2, y + drawH / 2);
         ctx.rotate(rotateRad);
+        if (reverse) ctx.scale(-1, 1);
         ctx.globalAlpha = opacity;
         const fontSize = Math.max(8, layer.fontSize ?? 12);
         ctx.font = `${fontSize}px ${layer.font ?? 'Segoe UI'}, sans-serif`;
@@ -1439,7 +1517,7 @@ const App = () => {
       previewQueuedRef.current = false;
       requestAnimationFrame(() => { void renderPreviewFrame(); });
     }
-  }, [layers, resolveActiveClip, session.playhead]);
+  }, [audioEl, canvasSize, layers, resolveActiveClip, session.playhead]);
 
   useEffect(() => {
     void renderPreviewFrame();
@@ -1452,7 +1530,7 @@ const App = () => {
   }, [renderPreviewFrame]);
 
   return (
-    <div style={{ padding: '1.5rem' }}>
+    <div style={{ padding: 2 }}>
       <div className="grid">
 
         {/* Preview Row */}
@@ -1489,14 +1567,16 @@ const App = () => {
           )}
         </div>
 
-        {/* Audio Row */}
+        {/* Media Row */}
         <div className="right section-block">
           <div className="section-header">
-            <h2 style={{ margin: 0 }}>AUDIO</h2>
+            <h2 style={{ margin: 0 }}>MEDIA</h2>
             <button className="pill-btn" type="button" title="Load Audio" aria-label="Load Audio" onClick={handleBrowseAudio}>
               <img className="pill-btn__img" src={assetHref('ui/icon-audio-load.png')} alt="" />
-              <span className="pill-btn__label">Load</span>
+              <span className="pill-btn__label">Load Audio</span>
             </button>
+            <PillIconButton icon="ui/icon-video-add.png" label="Browse" onClick={handleBrowseVideos} />
+            <PillIconButton icon="ui/icon-video.png" label="From Library" onClick={() => setAddVideoModalOpen(true)} />
 
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <VolumeSlider value={volume} onChange={(v) => setVolume(Math.min(1, Math.max(0, v)))} width={180} />
@@ -1513,128 +1593,114 @@ const App = () => {
                 <img className="pill-btn__img" src={assetHref('ui/icon-zoom-fit.png')} alt="" />
                 <span className="pill-btn__label">Fit</span>
               </button>
-              <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle audio">
+              <button className="collapse-btn" type="button" onClick={() => toggleSection('audio')} aria-label="Toggle media">
                 <img src={assetHref(themedIcon(collapsed.audio ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.audio ? 'Expand' : 'Collapse'} />
               </button>
             </div>
           </div>
           {!collapsed.audio && (
-            <div className="section-body" style={{ display: 'flex', padding: 0, position: 'relative', overflow: 'hidden' }}>
-              <OverviewWaveform
-                duration={audioDuration}
-                playhead={session.playhead ?? 0}
-                onSeek={(t: number) => setSession((prev) => ({ ...prev, playhead: t }))}
-                peaks={overviewPeaks}
-                hasAudio={!!session.audioPath}
-                zoom={timelineZoom}
-                scroll={timelineScroll}
-                onEmptyClick={handleBrowseAudio}
-              />
-              <div style={{ position: 'absolute', left: 8, top: 6, flexDirection: 'column',}}>
-                <button className="pill-btn pill-btn--compact" style={{ position: 'relative' ,top: '25px' , width: '60px',height: '60px', borderRadius: '20px' }} type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
-                  <img className="pill-btn__img"  style={{ position: 'relative', top: '0px', width: '45px', height: '45px' }} src={assetHref(isPlaying ? 'ui/icon-audio-pause.png' : 'ui/icon-audio-play.png')} alt="" />
-                </button>
-              </div>
-              
-              <div className="time-pill" style={{ position: 'absolute', right: 8, bottom: 6 }}>
+            <div className="section-body" style={{ padding: 0, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'relative' }}>
+                <OverviewWaveform
+                  duration={audioDuration}
+                  playhead={session.playhead ?? 0}
+                  onSeek={(t: number) => setSession((prev) => ({ ...prev, playhead: t }))}
+                  peaks={overviewPeaks}
+                  hasAudio={!!session.audioPath}
+                  zoom={timelineZoom}
+                  scroll={timelineScroll}
+                  onEmptyClick={handleBrowseAudio}
+                />
+                <div style={{ position: 'absolute', left: 8, top: 6, flexDirection: 'column' }}>
+                  <button className="pill-btn pill-btn--compact" style={{ position: 'relative', top: '25px', width: '60px', height: '60px', borderRadius: '20px' }} type="button" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={() => waveRef.current?.toggle()} disabled={!session.audioPath}>
+                    <img className="pill-btn__img" style={{ position: 'relative', top: '0px', width: '45px', height: '45px' }} src={assetHref(isPlaying ? 'ui/icon-audio-pause.png' : 'ui/icon-audio-play.png')} alt="" />
+                  </button>
+                </div>
+
+                <div className="time-pill" style={{ position: 'absolute', right: 8, bottom: 6 }}>
                   <span>{Math.floor(session.playhead ?? 0)}s</span>
                   <span>/</span>
                   <span>{Math.floor(audioDuration)}s</span>
-              </div>
-              <Waveform
-                ref={waveRef as any}
-                srcPath={session.audioPath ?? ''}
-                playhead={session.playhead ?? 0}
-                onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
-                onDurationChange={(d) => setAudioDuration(d)}
-                onPlayingChange={(p) => setIsPlaying(p)}
-                volume={volume}
-                hideBuiltInControls
-                hideCanvas
-                onAudioElement={(el) => { setAudioEl(el); }}
-              />
-            </div>
-          )}
-          {session.audioPath && (
-            <div className="section-body" style={{ marginTop: 6, padding: '2px 8px' }}>
-              <div style={{ height: 12, background: '#1e2432', borderRadius: 6, position: 'relative' }} onClick={(e) => {
-                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-                setTimelineScroll(pct);
-              }}>
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: `${Math.min(1, Math.max(0, timelineScroll)) * Math.max(0, 1 - 1 / Math.max(1, timelineZoom)) * 100}%`,
-                    top: 2,
-                    height: 8,
-                    width: `${Math.min(100, (1 / Math.max(1, timelineZoom)) * 100)}%`,
-                    background: '#3f51b5',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const onMove = (ev: MouseEvent) => {
-                      const rect = (e.currentTarget!.parentElement as HTMLDivElement).getBoundingClientRect();
-                      const pct = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
-                      setTimelineScroll(pct);
-                    };
-                    const onUp = () => {
-                      window.removeEventListener('mousemove', onMove);
-                      window.removeEventListener('mouseup', onUp);
-                    };
-                    window.addEventListener('mousemove', onMove);
-                    window.addEventListener('mouseup', onUp);
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Videos Row */}
-        <div className="right section-block">
-          <div className="section-header">
-            <h2 style={{ margin: 0 }}>VIDEOS</h2>
-            <PillIconButton icon="ui/icon-video-add.png" label="Browse" onClick={handleBrowseVideos} />
-            <PillIconButton icon="ui/icon-video.png" label="From Library" onClick={() => setAddVideoModalOpen(true)} />
-            <div style={{ marginLeft: 'auto' }}>
-              <button className="collapse-btn" type="button" onClick={() => toggleSection('videos')} aria-label="Toggle videos">
-                <img src={assetHref(themedIcon(collapsed.videos ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.videos ? 'Expand' : 'Collapse'} />
-              </button>
-            </div>
-          </div>
-          {!collapsed.videos && (
-            <div className="section-body" style={{ marginTop: 4 }}>
-              {(session.videoPaths?.length ?? 0) > 0 ? (
-                <Storyboard
-                  paths={session.videoPaths ?? []}
-                  onChange={(next) => {
-                    setSession((prev) => ({ ...prev, videoPaths: next }));
-                    void updateProjectDirty(true);
-                  }}
-                  durations={videoDurations}
-                  names={clipNames}
-                  missingPaths={missingPaths}
-                  totalDuration={audioDuration}
-                  zoom={timelineZoom}
-                  scroll={timelineScroll}
+                </div>
+                <Waveform
+                  ref={waveRef as any}
+                  srcPath={session.audioPath ?? ''}
                   playhead={session.playhead ?? 0}
-                  theme={theme}
-                  onContextMenu={openClipContextMenu}
-                  onDoubleClick={(path) => {
-                    const hit = (library.find((i) => i.path === path));
-                    if (hit) {
-                      setCollapsed((prev) => ({ ...prev, library: false }));
-                      setLibrarySelectedId(hit.id);
-                    } else {
-                      setCollapsed((prev) => ({ ...prev, library: false }));
-                    }
-                  }}
+                  onPlayheadChange={(t) => setSession((prev) => ({ ...prev, playhead: t }))}
+                  onDurationChange={(d) => setAudioDuration(d)}
+                  onPlayingChange={(p) => setIsPlaying(p)}
+                  volume={volume}
+                  hideBuiltInControls
+                  hideCanvas
+                  onAudioElement={(el) => { setAudioEl(el); }}
                 />
-              ) : (
-                <div className="muted" style={{ marginTop: '0.5rem' }}>No clips. Use Add Videos to include files.</div>
+              </div>
+              <div style={{ marginTop: 4 }}>
+                {(session.videoPaths?.length ?? 0) > 0 ? (
+                  <Storyboard
+                    paths={session.videoPaths ?? []}
+                    onChange={(next) => {
+                      setSession((prev) => ({ ...prev, videoPaths: next }));
+                      void updateProjectDirty(true);
+                    }}
+                    durations={videoDurations}
+                    names={clipNames}
+                    missingPaths={missingPaths}
+                    totalDuration={audioDuration}
+                    zoom={timelineZoom}
+                    scroll={timelineScroll}
+                    playhead={session.playhead ?? 0}
+                    theme={theme}
+                    onContextMenu={openClipContextMenu}
+                    onDoubleClick={(path) => {
+                      const hit = (library.find((i) => i.path === path));
+                      if (hit) {
+                        setCollapsed((prev) => ({ ...prev, library: false }));
+                        setLibrarySelectedId(hit.id);
+                      } else {
+                        setCollapsed((prev) => ({ ...prev, library: false }));
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="muted" style={{ marginTop: 2 }}>No clips. Use Browse or From Library to include files.</div>
+                )}
+              </div>
+              {session.audioPath && (
+                <div style={{ marginTop: 4, padding: '2px 8px' }}>
+                  <div style={{ height: 12, background: '#1e2432', borderRadius: 6, position: 'relative' }} onClick={(e) => {
+                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                    setTimelineScroll(pct);
+                  }}>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.min(1, Math.max(0, timelineScroll)) * Math.max(0, 1 - 1 / Math.max(1, timelineZoom)) * 100}%`,
+                        top: 2,
+                        height: 8,
+                        width: `${Math.min(100, (1 / Math.max(1, timelineZoom)) * 100)}%`,
+                        background: '#3f51b5',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const onMove = (ev: MouseEvent) => {
+                          const rect = (e.currentTarget!.parentElement as HTMLDivElement).getBoundingClientRect();
+                          const pct = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+                          setTimelineScroll(pct);
+                        };
+                        const onUp = () => {
+                          window.removeEventListener('mousemove', onMove);
+                          window.removeEventListener('mouseup', onUp);
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
+                      }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1709,7 +1775,13 @@ const App = () => {
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Outline Width
                       <input type="range" min={0} max={20} value={layerDraft.outlineWidth ?? 0} onChange={(e) => updateLayerDraftField({ outlineWidth: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}> {layerDraft.outlineWidth ?? 0}px</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Outline Width (px)', layerDraft.outlineWidth ?? 0, 0, 20, (v) => updateLayerDraftField({ outlineWidth: v }))}
+                      >
+                        {layerDraft.outlineWidth ?? 0}px
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Color
@@ -1718,12 +1790,24 @@ const App = () => {
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Amount
                       <input type="range" min={0} max={50} value={layerDraft.glowAmount ?? 0} onChange={(e) => updateLayerDraftField({ glowAmount: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.glowAmount ?? 0}px</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Glow Amount (px)', layerDraft.glowAmount ?? 0, 0, 50, (v) => updateLayerDraftField({ glowAmount: v }))}
+                      >
+                        {layerDraft.glowAmount ?? 0}px
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Glow Opacity
                       <input type="range" min={0} max={1} step={0.05} value={layerDraft.glowOpacity ?? 0.4} onChange={(e) => updateLayerDraftField({ glowOpacity: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{(layerDraft.glowOpacity ?? 0.4).toFixed(2)}</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Glow Opacity (0..1)', layerDraft.glowOpacity ?? 0.4, 0, 1, (v) => updateLayerDraftField({ glowOpacity: v }))}
+                      >
+                        {(layerDraft.glowOpacity ?? 0.4).toFixed(2)}
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Shadow Color
@@ -1732,27 +1816,57 @@ const App = () => {
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Shadow Distance
                       <input type="range" min={0} max={50} value={layerDraft.shadowDistance ?? 0} onChange={(e) => updateLayerDraftField({ shadowDistance: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.shadowDistance ?? 0}px</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Shadow Distance (px)', layerDraft.shadowDistance ?? 0, 0, 50, (v) => updateLayerDraftField({ shadowDistance: v }))}
+                      >
+                        {layerDraft.shadowDistance ?? 0}px
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       X (%)
-                      <input type="range" min={0} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ x: Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round((layerDraft.x ?? 0) * 100)}%</span>
+                      <input type="range" min={-100} max={100} value={Math.round((layerDraft.x ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ x: Math.min(100, Math.max(-100, Number(e.target.value))) / 100 })} />
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('X (%)', Math.round((layerDraft.x ?? 0) * 100), -100, 100, (v) => updateLayerDraftField({ x: v / 100 }))}
+                      >
+                        {Math.round((layerDraft.x ?? 0) * 100)}%
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Y (%)
-                      <input type="range" min={0} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ y: Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round((layerDraft.y ?? 0) * 100)}%</span>
+                      <input type="range" min={-100} max={100} value={Math.round((layerDraft.y ?? 0) * 100)} onChange={(e) => updateLayerDraftField({ y: Math.min(100, Math.max(-100, Number(e.target.value))) / 100 })} />
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Y (%)', Math.round((layerDraft.y ?? 0) * 100), -100, 100, (v) => updateLayerDraftField({ y: v / 100 }))}
+                      >
+                        {Math.round((layerDraft.y ?? 0) * 100)}%
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Rotate
                       <input type="range" min={0} max={360} value={Math.round(layerDraft.rotate ?? 0)} onChange={(e) => updateLayerDraftField({ rotate: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.rotate ?? 0)}°</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Rotate (deg)', Math.round(layerDraft.rotate ?? 0), 0, 360, (v) => updateLayerDraftField({ rotate: v }))}
+                      >
+                        {Math.round(layerDraft.rotate ?? 0)}deg
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Transparency
                       <input type="range" min={0} max={100} value={Math.round((layerDraft.opacity ?? 1) * 100)} onChange={(e) => updateLayerDraftField({ opacity: Math.min(100, Math.max(0, Number(e.target.value))) / 100 })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round((layerDraft.opacity ?? 1) * 100)}%</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Transparency (%)', Math.round((layerDraft.opacity ?? 1) * 100), 0, 100, (v) => updateLayerDraftField({ opacity: v / 100 }))}
+                      >
+                        {Math.round((layerDraft.opacity ?? 1) * 100)}%
+                      </span>
                     </label>
                 {layerDraft.type === 'spectrograph' && (
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1769,13 +1883,25 @@ const App = () => {
                   <>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Width (px)
-                      <input type="range" min={50} max={4000} value={Math.round(layerDraft.width ?? getMaxVideoWidth())} onChange={(e) => updateLayerDraftField({ width: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.width ?? getMaxVideoWidth())} px</span>
+                      <input type="range" min={50} max={4000} value={Math.round(layerDraft.width ?? canvasSize.width)} onChange={(e) => updateLayerDraftField({ width: Number(e.target.value) })} />
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Width (px)', Math.round(layerDraft.width ?? canvasSize.width), 50, 4000, (v) => updateLayerDraftField({ width: v }))}
+                      >
+                        {Math.round(layerDraft.width ?? canvasSize.width)} px
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Height (px)
-                      <input type="range" min={50} max={3000} value={Math.round(layerDraft.height ?? Math.round(getMaxVideoWidth() * 9 / 16))} onChange={(e) => updateLayerDraftField({ height: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{Math.round(layerDraft.height ?? Math.round(getMaxVideoWidth() * 9 / 16))} px</span>
+                      <input type="range" min={50} max={3000} value={Math.round(layerDraft.height ?? canvasSize.height)} onChange={(e) => updateLayerDraftField({ height: Number(e.target.value) })} />
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Height (px)', Math.round(layerDraft.height ?? canvasSize.height), 50, 3000, (v) => updateLayerDraftField({ height: v }))}
+                      >
+                        {Math.round(layerDraft.height ?? canvasSize.height)} px
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Invert
@@ -1789,14 +1915,37 @@ const App = () => {
                       </button>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Reverse
+                      <button
+                        className="pill-btn"
+                        type="button"
+                        aria-pressed={!!layerDraft.reverse}
+                        onClick={() => updateLayerDraftField({ reverse: !layerDraft.reverse })}
+                      >
+                        <span>{layerDraft.reverse ? 'On' : 'Off'}</span>
+                      </button>
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Low Cut (Hz)
                       <input type="range" min={10} max={500} value={layerDraft.lowCutHz ?? 40} onChange={(e) => updateLayerDraftField({ lowCutHz: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.lowCutHz ?? 40} Hz</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('Low Cut (Hz)', layerDraft.lowCutHz ?? 40, 10, 500, (v) => updateLayerDraftField({ lowCutHz: v }))}
+                      >
+                        {layerDraft.lowCutHz ?? 40} Hz
+                      </span>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       High Cut (Hz)
                       <input type="range" min={2000} max={20000} step={100} value={layerDraft.highCutHz ?? 16000} onChange={(e) => updateLayerDraftField({ highCutHz: Number(e.target.value) })} />
-                      <span className="muted" style={{ fontSize: 12 }}>{layerDraft.highCutHz ?? 16000} Hz</span>
+                      <span
+                        className="muted"
+                        style={{ fontSize: 12 }}
+                        onDoubleClick={() => promptNumeric('High Cut (Hz)', layerDraft.highCutHz ?? 16000, 2000, 20000, (v) => updateLayerDraftField({ highCutHz: v }))}
+                      >
+                        {layerDraft.highCutHz ?? 16000} Hz
+                      </span>
                     </label>
                   </>
                 )}
@@ -1997,9 +2146,34 @@ const App = () => {
         <div className="right section-block">
           <div className="section-header">
             <h2 style={{ margin: 0 }}>PROJECT</h2>
+                <button className="pill-btn" type="button" onClick={handleNewProject}>
+                  <span>New</span>
+                </button>
                 <PillIconButton icon="ui/icon-project-load.png" label="Load" onClick={handleLoadProject} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
                 <PillIconButton icon="ui/icon-project-save-as.png" label="Save As" onClick={handleSaveProjectAs} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
                 <PillIconButton icon="ui/icon-project-save.png" label="Save" onClick={handleSaveProject} disabled={projectLocked} title={projectLocked ? 'Available in full version' : undefined} />
+                <button
+                  className="pill-btn pill-btn--icon"
+                  type="button"
+                  aria-label="Landscape"
+                  aria-pressed={canvasPreset === 'landscape'}
+                  onClick={() => setCanvasPreset('landscape')}
+                  style={{ borderColor: canvasPreset === 'landscape' ? 'var(--accent)' : 'var(--border)' }}
+                  title="Landscape"
+                >
+                  <img className="pill-btn__img" src={assetHref('ui/icon-landscape.png')} alt="" />
+                </button>
+                <button
+                  className="pill-btn pill-btn--icon"
+                  type="button"
+                  aria-label="Portrait"
+                  aria-pressed={canvasPreset === 'portrait'}
+                  onClick={() => setCanvasPreset('portrait')}
+                  style={{ borderColor: canvasPreset === 'portrait' ? 'var(--accent)' : 'var(--border)' }}
+                  title="Portrait"
+                >
+                  <img className="pill-btn__img" src={assetHref('ui/icon-portrait.png')} alt="" />
+                </button>
                 <button className="pill-btn" type="button" onClick={handleUnlicense} title="Testing only">
                   <span>Unlicense</span>
                 </button>
@@ -2013,7 +2187,6 @@ const App = () => {
                       ETA: {Math.max(0, Math.floor((renderTotalMs - renderElapsedMs)/1000))}s
                     </span>
                   )}
-                  <span style={{ color: '#666' }}>{session.projectSavePath ?? 'No project path selected'}</span>
 
 
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'right', gap: 10 }}>
@@ -2121,6 +2294,7 @@ const App = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => startRenameClip(contextMenu.path, contextMenu.index)}>Rename</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipEdit(contextMenu.path)}>Edit</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipAddToLibrary(contextMenu.path)}>Add to Library</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => duplicateClipAt(contextMenu.index)}>Duplicate</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipInfo(contextMenu.path)}>File Info</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => removeClipAt(contextMenu.index)}>Remove</button>

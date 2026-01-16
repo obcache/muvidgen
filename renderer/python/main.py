@@ -142,9 +142,9 @@ def concat_videos_to_h264(work_dir: str, clips: List[str]) -> Tuple[int, str]:
     return code, out_path
 
 
-def mux_audio_video(temp_video: str, audio_path: Optional[str], output_path: str, layers: List[Dict[str, Any]]) -> int:
+def mux_audio_video(temp_video: str, audio_path: Optional[str], output_path: str, layers: List[Dict[str, Any]], canvas: Optional[Tuple[int, int]] = None) -> int:
     has_audio = bool(audio_path)
-    filter_complex, vlabel = build_layer_filters(layers, has_audio=has_audio)
+    filter_complex, vlabel = build_layer_filters(layers, has_audio=has_audio, canvas=canvas)
     args = [
         "-hide_banner",
         "-y",
@@ -199,13 +199,20 @@ def escape_text(txt: str) -> str:
     return txt.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 
-def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool) -> Tuple[Optional[str], str]:
+def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: Optional[Tuple[int, int]] = None) -> Tuple[Optional[str], str]:
     """Return (filter_complex, video_label)"""
-    if not layers:
+    if not layers and not canvas:
         return None, "[0:v]"
 
     filter_parts: List[str] = []
     current_v = "[0:v]"
+    if canvas:
+        cw, ch = canvas
+        filter_parts.append(
+            f"{current_v}scale=w={cw}:h={ch}:force_original_aspect_ratio=decrease,"
+            f"pad=w={cw}:h={ch}:x=(ow-iw)/2:y=(oh-ih)/2:color=black[v0]"
+        )
+        current_v = "[v0]"
 
     spec_layers = [l for l in layers if l.get("type") == "spectrograph"]
     if spec_layers and has_audio:
@@ -299,6 +306,17 @@ def main(argv: List[str]) -> int:
     clips = [c.get("path") for c in (project.get("clips") or []) if isinstance(c, dict) and c.get("path")]
     output = (project.get("output") or {}).get("path")
     layers = project.get("layers") or []
+    metadata = project.get("metadata") or {}
+    canvas_meta = metadata.get("canvas") if isinstance(metadata, dict) else None
+    canvas_size: Optional[Tuple[int, int]] = None
+    if isinstance(canvas_meta, dict):
+        try:
+            cw = int(canvas_meta.get("width") or 0)
+            ch = int(canvas_meta.get("height") or 0)
+            if cw > 0 and ch > 0:
+                canvas_size = (cw, ch)
+        except Exception:
+            canvas_size = None
 
     print("[renderer] Loaded project")
     print(f"  audio: {audio or 'none'}")
@@ -345,8 +363,8 @@ def main(argv: List[str]) -> int:
         eprint(f"[renderer] Concat stage failed with code {code}")
         return code
 
-    if audio or layers:
-        code = mux_audio_video(tmp_video, audio, output, layers)
+    if audio or layers or canvas_size:
+        code = mux_audio_video(tmp_video, audio, output, layers, canvas=canvas_size)
         if code != 0:
             eprint(f"[renderer] Mux stage failed with code {code}")
             return code

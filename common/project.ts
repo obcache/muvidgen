@@ -19,6 +19,7 @@ export interface LayerConfigBase {
   height?: number; // pixels
   rotate?: number; // degrees
   opacity?: number; // 0..1
+  reverse?: boolean;
 }
 
 export interface SpectrographLayer extends LayerConfigBase {

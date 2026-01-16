@@ -85,8 +85,8 @@ const Storyboard = ({ paths, onChange, durations, names, missingPaths, totalDura
   }, [onChange, paths]);
 
   return (
-    <div style={{ overflow: 'hidden', padding: 0, border: '1px solid #333', borderRadius: 4, background: '#0b0b0b', position: 'relative' }}>
-      <div style={{ display: 'flex', gap: 8, padding: 8, minWidth: `${100 * Math.max(1, zoom)}%`, transform: `translateX(-${Math.max(0, Math.min(1, scroll)) * Math.max(0, (zoom - 1) * 100)}%)`, transition: 'transform 0.05s linear' }}>
+    <div style={{ overflow: 'hidden', padding: 0, border: 'none', borderRadius: 0, background: 'transparent', position: 'relative' }}>
+      <div style={{ display: 'flex', gap: 8, padding: 0, minWidth: `${100 * Math.max(1, zoom)}%`, transform: `translateX(-${Math.max(0, Math.min(1, scroll)) * Math.max(0, (zoom - 1) * 100)}%)`, transition: 'transform 0.05s linear' }}>
       {items.map((item) => (
         <div
           key={item.path + ':' + item.index}
