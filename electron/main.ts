@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { SessionState } from '../common/session';
@@ -232,7 +232,7 @@ ipcMain.handle('project:open', async (): Promise<{ path: string; project: unknow
   }
   // Basic shape validation; renderer can further validate
   if (!isProjectSchema(parsed)) {
-    throw new Error('Selected file is not a valid MuvidGen project JSON.');
+    throw new Error('Selected file is not a valid muvid project JSON.');
   }
   return { path: filePath, project: parsed };
 });
@@ -266,13 +266,13 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
     throw new Error('Project JSON file does not exist.');
   }
 
-  const rendererOverride = process.env.MUVIDGEN_RENDERER; // path to exe or script
-  const pythonOverride = process.env.MUVIDGEN_PYTHON || 'python';
+  const rendererOverride = process.env.muvid_RENDERER; // path to exe or script
+  const pythonOverride = process.env.muvid_PYTHON || 'python';
 
   // Resolve default renderer script location in dev
   const candidates = [
     // packaged binary inside Electron asar/resources
-    path.join(process.resourcesPath, 'renderer', process.platform === 'win32' ? 'muvidgen-renderer.exe' : 'muvidgen-renderer'),
+    path.join(process.resourcesPath, 'renderer', process.platform === 'win32' ? 'muvid-renderer.exe' : 'muvid-renderer'),
     // when running from TS outDir (dist-electron/electron), go up to repo root
     path.join(__dirname, '..', '..', 'renderer', 'python', 'main.py'),
     // alternate relative
@@ -287,7 +287,7 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   })());
 
   if (!rendererPath) {
-    throw new Error('Renderer script not found. Set MUVIDGEN_RENDERER to the Python script or packaged renderer.');
+    throw new Error('Renderer script not found. Set muvid_RENDERER to the Python script or packaged renderer.');
   }
 
   const isPy = rendererPath.toLowerCase().endsWith('.py');
@@ -302,11 +302,11 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   const redistFfprobe = path.join(redistDir, fpName);
   try {
     await fs.access(redistFfmpeg);
-    if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = redistFfmpeg;
+    if (!childEnv.muvid_FFMPEG) childEnv.muvid_FFMPEG = redistFfmpeg;
   } catch {}
   try {
     await fs.access(redistFfprobe);
-    if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = redistFfprobe;
+    if (!childEnv.muvid_FFPROBE) childEnv.muvid_FFPROBE = redistFfprobe;
   } catch {}
   // If running a standalone packaged renderer binary, also try sibling fallback
   if (!isPy) {
@@ -315,11 +315,11 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
     const sibFfprobe = path.join(base, fpName);
     try {
       await fs.access(sibFfmpeg);
-      if (!childEnv.MUVIDGEN_FFMPEG) childEnv.MUVIDGEN_FFMPEG = sibFfmpeg;
+      if (!childEnv.muvid_FFMPEG) childEnv.muvid_FFMPEG = sibFfmpeg;
     } catch {}
     try {
       await fs.access(sibFfprobe);
-      if (!childEnv.MUVIDGEN_FFPROBE) childEnv.MUVIDGEN_FFPROBE = sibFfprobe;
+      if (!childEnv.muvid_FFPROBE) childEnv.muvid_FFPROBE = sibFfprobe;
     } catch {}
   }
   // Dev fallbacks: vendor\\windows\\redist and local .\\redist under repo root
@@ -332,22 +332,22 @@ ipcMain.handle('render:start', async (_event, projectJsonPath: string): Promise<
   ];
   for (const b of devBases) {
     try {
-      if (!childEnv.MUVIDGEN_FFMPEG) {
+      if (!childEnv.muvid_FFMPEG) {
         const p = path.join(b, ffName);
         await fs.access(p);
-        childEnv.MUVIDGEN_FFMPEG = p;
+        childEnv.muvid_FFMPEG = p;
       }
-      if (!childEnv.MUVIDGEN_FFPROBE) {
+      if (!childEnv.muvid_FFPROBE) {
         const p = path.join(b, fpName);
         await fs.access(p);
-        childEnv.MUVIDGEN_FFPROBE = p;
+        childEnv.muvid_FFPROBE = p;
       }
     } catch {}
   }
 
   // Emit diagnostic of resolved tools
   try {
-    const msg = `Using ffmpeg: ${childEnv.MUVIDGEN_FFMPEG ?? '(PATH)'}; ffprobe: ${childEnv.MUVIDGEN_FFPROBE ?? '(PATH)'}`;
+    const msg = `Using ffmpeg: ${childEnv.muvid_FFMPEG ?? '(PATH)'}; ffprobe: ${childEnv.muvid_FFPROBE ?? '(PATH)'}`;
     console.log('[render]', msg);
     mainWindow?.webContents.send('render:log', msg);
   } catch {}
@@ -473,7 +473,71 @@ async function createWindow(): Promise<void> {
   }
 }
 
-app.whenReady().then(createWindow);
+const emitMenuAction = (action: string) => {
+  try {
+    mainWindow?.webContents.send('menu:action', action);
+  } catch (err) {
+    console.warn('[menu] failed to emit action', action, err);
+  }
+};
+
+const buildAppMenu = () => {
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Project', accelerator: 'CmdOrCtrl+N', click: () => emitMenuAction('project:new') },
+        { label: 'Open Project...', accelerator: 'CmdOrCtrl+O', click: () => emitMenuAction('project:open') },
+        { type: 'separator' },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => emitMenuAction('project:save') },
+        { label: 'Save As...', accelerator: 'CmdOrCtrl+Shift+S', click: () => emitMenuAction('project:saveAs') },
+        { type: 'separator' },
+        { label: 'Render', accelerator: 'CmdOrCtrl+R', click: () => emitMenuAction('render:start') },
+        { label: 'Cancel Render', click: () => emitMenuAction('render:cancel') },
+        { type: 'separator' },
+        { role: 'quit' as const },
+      ],
+    },
+    {
+      label: 'Media',
+      submenu: [
+        { label: 'Load Audio...', click: () => emitMenuAction('media:loadAudio') },
+        { label: 'Add Videos...', click: () => emitMenuAction('media:addVideos') },
+        { label: 'Add From Library...', click: () => emitMenuAction('media:addFromLibrary') },
+      ],
+    },
+    {
+      label: 'Layers',
+      submenu: [
+        { label: 'Add Visualizer', click: () => emitMenuAction('layer:addSpectrograph') },
+        { label: 'Add Text', click: () => emitMenuAction('layer:addText') },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Zoom Timeline In', accelerator: 'CmdOrCtrl+=', click: () => emitMenuAction('view:zoomIn') },
+        { label: 'Zoom Timeline Out', accelerator: 'CmdOrCtrl+-', click: () => emitMenuAction('view:zoomOut') },
+        { label: 'Zoom Timeline Fit', accelerator: 'CmdOrCtrl+0', click: () => emitMenuAction('view:zoomFit') },
+        { type: 'separator' },
+        { role: 'togglefullscreen' as const },
+      ],
+    },
+    {
+      label: 'Help',
+      submenu: [
+        { label: 'About muvid', click: () => emitMenuAction('help:about') },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template as any);
+  Menu.setApplicationMenu(menu);
+};
+
+app.whenReady().then(() => {
+  buildAppMenu();
+  return createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -577,7 +641,7 @@ app.on('browser-window-created', (_event, window) => {
 });
 ipcMain.handle('project:defaultPath', async (): Promise<string> => {
   const docs = app.getPath('documents');
-  const baseDir = path.join(docs, 'MuvidGen', 'Projects');
+  const baseDir = path.join(docs, 'muvid', 'Projects');
   await fs.mkdir(baseDir, { recursive: true });
   const ts = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -596,8 +660,8 @@ ipcMain.handle('render:chooseOutput', async (_event, projectJsonPath?: string): 
   } catch {}
   if (!defaultPath) {
     const docs = app.getPath('documents');
-    await fs.mkdir(path.join(docs, 'MuvidGen', 'Renders'), { recursive: true });
-    defaultPath = path.join(docs, 'MuvidGen', 'Renders', 'render.mp4');
+    await fs.mkdir(path.join(docs, 'muvid', 'Renders'), { recursive: true });
+    defaultPath = path.join(docs, 'muvid', 'Renders', 'render.mp4');
   }
   const result = await dialog.showSaveDialog({
     title: 'Choose output video file',
@@ -611,7 +675,7 @@ ipcMain.handle('render:chooseOutput', async (_event, projectJsonPath?: string): 
 
 ipcMain.handle('render:prepareProject', async (_event, projectJsonPath: string, outputPath: string): Promise<string> => {
   const dir = path.dirname(projectJsonPath);
-  const work = path.join(dir, '.muvidgen');
+  const work = path.join(dir, '.muvid');
   await fs.mkdir(work, { recursive: true });
   const tmpPath = path.join(work, 'render.json');
   const raw = await fs.readFile(projectJsonPath, 'utf-8');
@@ -649,7 +713,7 @@ ipcMain.handle('mediaLibrary:probe', async (_event, filePath: string): Promise<P
   const ffprobePath = await (async () => {
     const ffName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
     const candidates = [
-      process.env.MUVIDGEN_FFPROBE,
+      process.env.muvid_FFPROBE,
       path.join(process.resourcesPath, 'redist', ffName),
       path.join(path.resolve(__dirname, '..', '..'), 'vendor', 'windows', 'redist', ffName),
       path.join(process.cwd(), 'vendor', 'windows', 'redist', ffName),

@@ -260,6 +260,13 @@ label { color: var(--text); }
   display: inline-block;
 }
 
+.pill-select {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 15px;
+  border-radius: 8px;
+}
+
 .section-header {
   display: flex;
   align-items: center;

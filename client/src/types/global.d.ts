@@ -28,6 +28,7 @@ export interface ElectronAPI {
   saveMediaLibrary(items: import('common/project').MediaLibraryItem[]): Promise<void>;
   probeMediaFile(path: string): Promise<Partial<import('common/project').MediaLibraryItem>>;
   onProjectRequestSave(listener: () => void): () => void;
+  onMenuAction(listener: (action: string) => void): () => void;
   onRenderLog(listener: (line: string) => void): () => void;
   onRenderProgress(listener: (data: { outTimeMs?: number; totalMs?: number }) => void): () => void;
   onRenderDone(listener: () => void): () => void;

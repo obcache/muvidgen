@@ -8,6 +8,7 @@ export interface WaveformProps {
   onPlayingChange?: (playing: boolean) => void;
   hideBuiltInControls?: boolean;
   volume?: number;
+  useElementVolume?: boolean;
   hideCanvas?: boolean;
   onAudioElement?: (el: HTMLAudioElement) => void;
 }
@@ -48,7 +49,7 @@ const formatTime = (t: number): string => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead, onPlayheadChange, onDurationChange, onPlayingChange, hideBuiltInControls, volume = 1, hideCanvas, onAudioElement }: WaveformProps, ref) => {
+const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead, onPlayheadChange, onDurationChange, onPlayingChange, hideBuiltInControls, volume = 1, useElementVolume = true, hideCanvas, onAudioElement }: WaveformProps, ref) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isPlaying, setPlaying] = useState(false);
@@ -181,9 +182,13 @@ const Waveform = forwardRef<WaveformHandle, WaveformProps>(({ srcPath, playhead,
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    if (!useElementVolume) {
+      audio.volume = 1;
+      return;
+    }
     const nextVol = Math.min(1, Math.max(0, volume));
     audio.volume = nextVol;
-  }, [volume]);
+  }, [useElementVolume, volume]);
 
   useEffect(() => {
     const a = audioRef.current;

@@ -4,8 +4,8 @@ import type { ProjectSchema } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
 
 const BRIDGE_MOCK_ENV_FLAGS = [
-  'VITE_MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
-  'MUVIDGEN_USE_ELECTRON_BRIDGE_MOCK',
+  'VITE_muvid_USE_ELECTRON_BRIDGE_MOCK',
+  'muvid_USE_ELECTRON_BRIDGE_MOCK',
 ];
 
 type EnvValue = string | boolean | number | undefined;
@@ -146,7 +146,7 @@ const mockBridge: ElectronAPI = {
     const ts = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const name = `Project-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.json`;
-    return `${docs}/MuvidGen/Projects/${name}`;
+    return `${docs}/muvid/Projects/${name}`;
   },
   async openProject() {
     return undefined as any;
@@ -170,6 +170,9 @@ const mockBridge: ElectronAPI = {
     return {};
   },
   onProjectRequestSave(listener) {
+    return () => void listener;
+  },
+  onMenuAction(listener) {
     return () => void listener;
   },
   onRenderLog(listener) {
@@ -302,6 +305,10 @@ export const updateProjectDirty = async (dirty: boolean): Promise<void> => {
 
 export const onProjectRequestSave = (listener: () => void): (() => void) => {
   return getBridge().onProjectRequestSave(listener);
+};
+
+export const onMenuAction = (listener: (action: string) => void): (() => void) => {
+  return getBridge().onMenuAction(listener);
 };
 
 export const notifyProjectSaved = (ok: boolean): void => {

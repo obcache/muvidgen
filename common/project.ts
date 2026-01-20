@@ -2,9 +2,18 @@ export interface ClipSegment {
   path: string;
   index: number;
   start?: number; // seconds
+  trimStart?: number; // seconds
+  trimEnd?: number; // seconds
   duration?: number; // seconds
   label?: string;
   color?: string;
+  hue?: number;
+  contrast?: number;
+  brightness?: number;
+  rotate?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  invert?: boolean;
 }
 
 export type LayerType = 'spectrograph' | 'text';

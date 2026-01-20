@@ -35,6 +35,7 @@ export interface ElectronBridge {
   saveMediaLibrary: (items: import('../common/project').MediaLibraryItem[]) => Promise<void>;
   probeMediaFile: (path: string) => Promise<Partial<import('../common/project').MediaLibraryItem>>;
   onProjectRequestSave: (listener: () => void) => () => void;
+  onMenuAction: (listener: (action: string) => void) => () => void;
   onRenderLog: (listener: (line: string) => void) => () => void;
   onRenderProgress: (listener: (data: { outTimeMs?: number; totalMs?: number }) => void) => () => void;
   onRenderDone: (listener: () => void) => () => void;
@@ -69,6 +70,12 @@ const bridge: ElectronBridge = {
   onProjectRequestSave: (listener) => {
     const channel = 'project:requestSave';
     const handler = () => listener();
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onMenuAction: (listener) => {
+    const channel = 'menu:action';
+    const handler = (_e: Electron.IpcRendererEvent, action: string) => listener(action);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },

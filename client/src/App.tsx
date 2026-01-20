@@ -27,6 +27,7 @@ import {
   saveMediaLibrary as persistMediaLibrary,
   probeMediaFile,
   fileExists,
+  onMenuAction,
 } from './state/storage';
 import type { SessionState } from './types/session';
 // ProjectSchema usage comes via storage types; no direct import needed here.
@@ -40,10 +41,25 @@ import type { MediaLibraryItem } from 'common/project';
 
 type Theme = 'dark' | 'light';
 type WebAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
+type ClipEdit = {
+  timelineStart?: number;
+  trimStart?: number;
+  trimEnd?: number;
+  duration?: number;
+  hue?: number;
+  contrast?: number;
+  brightness?: number;
+  rotate?: number;
+  flipH?: boolean;
+  flipV?: boolean;
+  invert?: boolean;
+};
 
 type LocalSession = SessionState & {
   audioPath?: string;
   videoPaths?: string[];
+  videoIds?: string[];
+  clipEdits?: Record<string, ClipEdit>;
   projectSavePath?: string;
   playhead?: number;
   layers?: LayerConfig[];
@@ -52,7 +68,7 @@ type LocalSession = SessionState & {
   videoNames?: Record<string, string>;
 };
 
-const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark', canvasPreset: 'landscape', videoNames: {} };
+const defaultState: LocalSession = { notes: '', playhead: 0, theme: 'dark', canvasPreset: 'landscape', videoNames: {}, videoIds: [], clipEdits: {} };
 type LicensePayload = { name?: string; email?: string; edition?: string; issuedAt?: number; expiresAt?: number };
 const FONT_FACE_OPTIONS = [
   'Segoe UI',
@@ -219,6 +235,7 @@ const App = () => {
   const spectroAudioCtxRef = useRef<AudioContext | null>(null);
   const spectroSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const spectroAnalyserRef = useRef<AnalyserNode | null>(null);
+  const spectroGainRef = useRef<GainNode | null>(null);
   const spectroLastDataRef = useRef<Uint8Array | null>(null);
   const previewBusyRef = useRef<boolean>(false);
   const previewQueuedRef = useRef<boolean>(false);
@@ -229,8 +246,12 @@ const App = () => {
   const [librarySelectedId, setLibrarySelectedId] = useState<string | null>(null);
   const [addVideoModalOpen, setAddVideoModalOpen] = useState<boolean>(false);
   const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
-  const [contextMenu, setContextMenu] = useState<{ path: string; index: number; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ id: string; path: string; index: number; x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ path: string; index: number; name: string } | null>(null);
+  const [clipEditor, setClipEditor] = useState<{ id: string; path: string; index: number } | null>(null);
+  const [clipEditorDraft, setClipEditorDraft] = useState<(ClipEdit & { timelineStart?: number; timelineEnd?: number }) | null>(null);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const selectedLayer = useMemo(() => layers.find((layer) => layer.id === selectedLayerId) ?? null, [layers, selectedLayerId]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     preview: true,
     audio: false,
@@ -292,6 +313,18 @@ const App = () => {
       if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     } catch {}
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  };
+  const hexToRgba = (hex: string, alpha: number) => {
+    let c = hex.trim();
+    if (c.startsWith('#')) c = c.slice(1);
+    if (c.length === 3) {
+      c = c.split('').map((ch) => ch + ch).join('');
+    }
+    if (c.length !== 6) return `rgba(255,255,255,${alpha})`;
+    const r = parseInt(c.slice(0, 2), 16);
+    const g = parseInt(c.slice(2, 4), 16);
+    const b = parseInt(c.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
   };
 
   const makePseudoPeaks = useCallback((key: string, buckets = 640) => {
@@ -372,6 +405,19 @@ const App = () => {
     void loadLibrary();
   }, [loadLibrary]);
 
+  useEffect(() => {
+    setSession((prev) => {
+      const paths = prev.videoPaths ?? [];
+      const ids = prev.videoIds ?? [];
+      if (paths.length === 0) {
+        return ids.length ? { ...prev, videoIds: [] } : prev;
+      }
+      if (ids.length === paths.length && ids.every(Boolean)) return prev;
+      const nextIds = paths.map((_, idx) => ids[idx] || makeId());
+      return { ...prev, videoIds: nextIds };
+    });
+  }, [session.videoPaths]);
+
   const projectTitle = useMemo(() => {
     const path = session.projectSavePath;
     if (!path) return '';
@@ -381,7 +427,7 @@ const App = () => {
 
   useEffect(() => {
     const base = 'muvid';
-    document.title = projectTitle ? `${base} - ${projectTitle}` : base;
+    document.title = projectTitle ? `${base} - ${projectTitle}` : `${base} - Unsaved Project *`;
   }, [projectTitle]);
 
   // Check missing media (audio, videos, library) when paths change
@@ -442,8 +488,9 @@ const App = () => {
 
   const startNewLayer = (type: LayerType) => {
     const baseWidth = canvasSize.width;
+    const newId = makeId();
     setLayerDraft({
-      id: makeId(),
+      id: newId,
       type,
       color: '#ffffff',
       x: 0.05,
@@ -461,11 +508,13 @@ const App = () => {
       font: type === 'text' ? 'Segoe UI' : undefined,
       fontSize: type === 'text' ? 12 : undefined,
     });
+    setSelectedLayerId(newId);
     setLayerDialogOpen(true);
   };
 
   const openEditLayer = (layer: LayerConfig) => {
     setLayerDraft({ ...layer });
+    setSelectedLayerId(layer.id);
     setLayerDialogOpen(true);
   };
 
@@ -510,6 +559,7 @@ const App = () => {
           return { ...prevSession, layers: newLayers };
         });
         void updateProjectDirty(true);
+        void renderPreviewFrame();
       }
       return next;
     });
@@ -528,10 +578,16 @@ const App = () => {
     });
     setLayerDialogOpen(false);
     void updateProjectDirty(true);
+    void renderPreviewFrame();
   };
 
   const deleteLayer = (id: string) => {
     setSession((prev) => ({ ...prev, layers: (prev.layers ?? []).filter((l) => l.id !== id) }));
+    if (selectedLayerId === id) {
+      setSelectedLayerId(null);
+      setLayerDialogOpen(false);
+      setLayerDraft({});
+    }
     void updateProjectDirty(true);
   };
 
@@ -607,29 +663,6 @@ const App = () => {
     }
   }, [session.videoPaths]);
 
-  const buildProjectFromSession = useCallback((): ProjectSchema => {
-    const clips: ProjectSchema['clips'] = (session.videoPaths ?? []).map((p, index) => {
-      const clip: ProjectSchema['clips'][number] = { path: p, index, label: (session.videoNames ?? {})[p] };
-      const dur = videoDurations[p];
-      if (Number.isFinite(dur)) clip.duration = dur;
-      return clip;
-    });
-    const audio = session.audioPath ? { path: session.audioPath } : null;
-    const playhead = typeof session.playhead === 'number' && Number.isFinite(session.playhead) ? session.playhead : 0;
-    const metadata: Record<string, unknown> = {};
-    if (session.theme) metadata.theme = session.theme;
-    if (canvasPreset) {
-      metadata.canvas = { preset: canvasPreset, width: canvasSize.width, height: canvasSize.height };
-    }
-    return {
-      version: '1.0',
-      audio,
-      playhead,
-      clips,
-      layers: session.layers ?? [],
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    };
-  }, [canvasPreset, canvasSize.height, canvasSize.width, session.audioPath, session.playhead, session.videoPaths, session.layers, videoDurations]);
 
   useEffect(() => {
     // Load session
@@ -663,6 +696,61 @@ const App = () => {
     const offReqSave = onProjectRequestSave(() => {
       void handleSaveProject();
     });
+    const offMenu = onMenuAction((action) => {
+      switch (action) {
+        case 'project:new':
+          handleNewProject();
+          break;
+        case 'project:open':
+          void handleLoadProject();
+          break;
+        case 'project:save':
+          void handleSaveProject();
+          break;
+        case 'project:saveAs':
+          void handleSaveProjectAs();
+          break;
+        case 'render:start':
+          void handleStartRender();
+          break;
+        case 'render:cancel':
+          void cancelRender();
+          break;
+        case 'media:loadAudio':
+          void handleBrowseAudio();
+          break;
+        case 'media:addVideos':
+          void handleBrowseVideos();
+          break;
+        case 'media:addFromLibrary':
+          setAddVideoModalOpen(true);
+          setCollapsed((prev) => ({ ...prev, library: false }));
+          break;
+        case 'layer:addSpectrograph':
+          startNewLayer('spectrograph');
+          break;
+        case 'layer:addText':
+          startNewLayer('text');
+          break;
+        case 'view:zoomIn':
+          setTimelineZoom((z) => Math.min(8, z * 2));
+          setTimelineScroll(0);
+          break;
+        case 'view:zoomOut':
+          setTimelineZoom((z) => Math.max(0.25, z / 2));
+          setTimelineScroll(0);
+          break;
+        case 'view:zoomFit':
+          setTimelineZoom(1);
+          setTimelineScroll(0);
+          break;
+        case 'help:about':
+          setStatus('muvid - music visualizer generator');
+          break;
+        default:
+          break;
+      }
+    });
 
     // Cleanup only (not JSX)
     return () => {
@@ -673,6 +761,7 @@ const App = () => {
       offErr?.();
       offCancelled?.();
       offReqSave?.();
+      offMenu?.();
     };
   }, []);
 
@@ -696,8 +785,11 @@ const App = () => {
       if (!paths || paths.length === 0) return;
       setSession((prev) => {
         const existing = prev.videoPaths ?? [];
+        const existingIds = prev.videoIds ?? [];
         const nextNames = { ...(prev.videoNames ?? {}) };
-        return { ...prev, videoPaths: [...existing, ...paths], videoNames: nextNames };
+        const nextIds = [...existingIds];
+        paths.forEach(() => nextIds.push(makeId()));
+        return { ...prev, videoPaths: [...existing, ...paths], videoIds: nextIds, videoNames: nextNames };
       });
       setStatus(`${paths.length} video file(s) added`);
       void updateProjectDirty(true);
@@ -735,9 +827,10 @@ const App = () => {
   const handleAddVideoFromLibrary = (item: MediaLibraryItem) => {
     setSession((prev) => {
       const existing = prev.videoPaths ?? [];
+      const existingIds = prev.videoIds ?? [];
       const nextNames = { ...(prev.videoNames ?? {}) };
       nextNames[item.path] = item.name;
-      return { ...prev, videoPaths: [...existing, item.path], videoNames: nextNames };
+      return { ...prev, videoPaths: [...existing, item.path], videoIds: [...existingIds, makeId()], videoNames: nextNames };
     });
     setStatus(`Added ${item.name} from library`);
     void updateProjectDirty(true);
@@ -853,6 +946,8 @@ const App = () => {
     setLayerDialogOpen(false);
     setContextMenu(null);
     setRenameTarget(null);
+    setClipEditor(null);
+    setClipEditorDraft(null);
     setMissingPaths(new Set());
     setAddVideoModalOpen(false);
     setLibrarySelectedId(null);
@@ -878,20 +973,176 @@ const App = () => {
     (session.videoPaths ?? []).forEach((p) => { map[p] = getClipLabel(p); });
     return map;
   }, [session.videoPaths, getClipLabel]);
+  const clipEdits = useMemo(() => session.clipEdits ?? {}, [session.clipEdits]);
+  const clipSegments = useMemo(() => {
+    const paths = session.videoPaths ?? [];
+    const ids = session.videoIds ?? [];
+    let cursor = 0;
+    return paths.map((path, index) => {
+      const id = ids[index] || `${index}:${path}`;
+      const edit = clipEdits[id] ?? {};
+      const sourceDuration = videoDurations[path] ?? 0;
+      const trimStart = Math.max(0, Number(edit.trimStart ?? 0));
+      const trimEnd = Number.isFinite(edit.trimEnd as number)
+        ? Math.max(trimStart, Number(edit.trimEnd))
+        : (sourceDuration > 0 ? sourceDuration : trimStart);
+      const trimmedLength = Math.max(0.05, trimEnd - trimStart);
+      const duration = Number.isFinite(edit.duration as number)
+        ? Math.max(0.05, Number(edit.duration))
+        : trimmedLength;
+      const startOverride = Number.isFinite(edit.timelineStart as number)
+        ? Math.max(0, Number(edit.timelineStart))
+        : null;
+      const start = startOverride === null ? cursor : Math.max(cursor, startOverride);
+      const end = start + duration;
+      cursor = Math.max(cursor, end);
+      return {
+        id,
+        path,
+        index,
+        start,
+        end,
+        duration,
+        trimStart,
+        trimEnd,
+        sourceDuration,
+        hue: edit.hue,
+        contrast: edit.contrast,
+        brightness: edit.brightness,
+        rotate: edit.rotate,
+        flipH: edit.flipH,
+        flipV: edit.flipV,
+        invert: edit.invert,
+        trimmedLength,
+      };
+    });
+  }, [clipEdits, session.videoPaths, session.videoIds, videoDurations]);
+  const timelineDuration = useMemo(() => {
+    if (audioDuration > 0) return audioDuration;
+    return clipSegments.reduce((acc, seg) => Math.max(acc, seg.end ?? 0), 0);
+  }, [audioDuration, clipSegments]);
   const projectLocked = !isLicensed;
 
-  const openClipContextMenu = (path: string, index: number, x: number, y: number) => {
-    setContextMenu({ path, index, x, y });
+  const buildProjectFromSession = useCallback((): ProjectSchema => {
+    const clips: ProjectSchema['clips'] = clipSegments.map((seg) => {
+      const clip: ProjectSchema['clips'][number] = {
+        path: seg.path,
+        index: seg.index,
+        label: (session.videoNames ?? {})[seg.path],
+      };
+      if (Number.isFinite(seg.start as number)) clip.start = seg.start;
+      clip.trimStart = seg.trimStart;
+      clip.trimEnd = seg.trimEnd;
+      clip.duration = seg.duration;
+      if (Number.isFinite(seg.hue as number)) clip.hue = seg.hue;
+      if (Number.isFinite(seg.contrast as number)) clip.contrast = seg.contrast;
+      if (Number.isFinite(seg.brightness as number)) clip.brightness = seg.brightness;
+      if (Number.isFinite(seg.rotate as number)) clip.rotate = seg.rotate;
+      if (typeof seg.flipH === 'boolean') clip.flipH = seg.flipH;
+      if (typeof seg.flipV === 'boolean') clip.flipV = seg.flipV;
+      if (typeof seg.invert === 'boolean') clip.invert = seg.invert;
+      return clip;
+    });
+    const audio = session.audioPath ? { path: session.audioPath } : null;
+    const playhead = typeof session.playhead === 'number' && Number.isFinite(session.playhead) ? session.playhead : 0;
+    const metadata: Record<string, unknown> = {};
+    if (session.theme) metadata.theme = session.theme;
+    if (canvasPreset) {
+      metadata.canvas = { preset: canvasPreset, width: canvasSize.width, height: canvasSize.height };
+    }
+    return {
+      version: '1.0',
+      audio,
+      playhead,
+      clips,
+      layers: session.layers ?? [],
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    };
+  }, [canvasPreset, canvasSize.height, canvasSize.width, clipSegments, session.audioPath, session.playhead, session.layers, session.videoNames]);
+
+  useEffect(() => {
+    if (!clipEditor) {
+      setClipEditorDraft(null);
+      return;
+    }
+    const seg = clipSegments.find((item) => item.id === clipEditor.id);
+    if (!seg) return;
+    setClipEditorDraft({
+      timelineStart: seg.start,
+      timelineEnd: seg.end,
+      trimStart: seg.trimStart,
+      trimEnd: seg.trimEnd,
+      duration: seg.duration,
+      hue: Number.isFinite(seg.hue as number) ? seg.hue : 0,
+      contrast: Number.isFinite(seg.contrast as number) ? seg.contrast : 1,
+      brightness: Number.isFinite(seg.brightness as number) ? seg.brightness : 1,
+      rotate: Number.isFinite(seg.rotate as number) ? seg.rotate : 0,
+      flipH: !!seg.flipH,
+      flipV: !!seg.flipV,
+      invert: !!seg.invert,
+    });
+  }, [clipEditor, clipSegments]);
+
+  const openClipContextMenu = (id: string, path: string, index: number, x: number, y: number) => {
+    setContextMenu({ id, path, index, x, y });
   };
 
   const closeContextMenu = () => setContextMenu(null);
+
+  const reorderList = <T,>(arr: T[], from: number, to: number) => {
+    const next = arr.slice();
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+  };
+
+  const updateClipEdit = useCallback((id: string, patch: Partial<ClipEdit>) => {
+    setSession((prev) => {
+      const edits = { ...(prev.clipEdits ?? {}) };
+      const existing = edits[id] ?? {};
+      edits[id] = { ...existing, ...patch };
+      return { ...prev, clipEdits: edits };
+    });
+    void updateProjectDirty(true);
+  }, []);
+
+  const applyTrimEdit = useCallback((id: string, trimStart: number, duration: number) => {
+    const seg = clipSegments.find((item) => item.id === id);
+    const maxEnd = seg?.trimEnd ?? (seg?.sourceDuration ?? Number.POSITIVE_INFINITY);
+    const nextStart = Math.max(0, trimStart);
+    const clampedStart = Math.max(0, Math.min(maxEnd - 0.05, nextStart));
+    const nextDuration = Math.max(0.05, duration);
+    updateClipEdit(id, { trimStart: clampedStart, duration: nextDuration });
+  }, [clipSegments, updateClipEdit]);
+
+  const applyDurationEdit = useCallback((id: string, duration: number) => {
+    const nextDuration = Math.max(0.05, duration);
+    updateClipEdit(id, { duration: nextDuration });
+  }, [updateClipEdit]);
+
+  const handleReorderClips = useCallback((from: number, to: number) => {
+    setSession((prev) => {
+      const paths = prev.videoPaths ?? [];
+      const ids = prev.videoIds ?? [];
+      if (from === to || from < 0 || to < 0 || from >= paths.length || to >= paths.length) return prev;
+      const nextPaths = reorderList(paths, from, to);
+      const nextIds = ids.length === paths.length ? reorderList(ids, from, to) : ids;
+      return { ...prev, videoPaths: nextPaths, videoIds: nextIds };
+    });
+    void updateProjectDirty(true);
+  }, []);
 
 
   const removeClipAt = (idx: number) => {
     setSession((prev) => {
       const next = (prev.videoPaths ?? []).slice();
+      const ids = (prev.videoIds ?? []).slice();
+      const removedId = ids[idx];
       next.splice(idx, 1);
-      return { ...prev, videoPaths: next };
+      if (ids.length) ids.splice(idx, 1);
+      const edits = { ...(prev.clipEdits ?? {}) };
+      if (removedId) delete edits[removedId];
+      return { ...prev, videoPaths: next, videoIds: ids, clipEdits: edits };
     });
     setContextMenu(null);
     void updateProjectDirty(true);
@@ -900,11 +1151,20 @@ const App = () => {
   const duplicateClipAt = (idx: number) => {
     setSession((prev) => {
       const paths = prev.videoPaths ?? [];
+      const ids = prev.videoIds ?? [];
       if (idx < 0 || idx >= paths.length) return prev;
       const dup = paths[idx];
       const next = paths.slice();
       next.splice(idx + 1, 0, dup);
-      return { ...prev, videoPaths: next };
+      const nextIds = ids.slice();
+      const newId = makeId();
+      nextIds.splice(idx + 1, 0, newId);
+      const edits = { ...(prev.clipEdits ?? {}) };
+      const sourceId = ids[idx];
+      if (sourceId && edits[sourceId]) {
+        edits[newId] = { ...edits[sourceId] };
+      }
+      return { ...prev, videoPaths: next, videoIds: nextIds, clipEdits: edits };
     });
     setContextMenu(null);
     void updateProjectDirty(true);
@@ -938,14 +1198,51 @@ const App = () => {
     setContextMenu(null);
   };
 
-  const handleClipEdit = (path: string) => {
-    const hit = library.find((i) => i.path === path);
-    if (hit) {
-      setLibrarySelectedId(hit.id);
-      setCollapsed((prev) => ({ ...prev, library: false }));
-    }
+  const handleClipEdit = (id: string, path: string, index: number) => {
+    setClipEditor({ id, path, index });
     setContextMenu(null);
   };
+
+  const closeClipEditor = () => {
+    setClipEditor(null);
+    setClipEditorDraft(null);
+  };
+
+  const applyClipEditor = () => {
+    if (!clipEditor || !clipEditorDraft) return;
+    const seg = clipSegments.find((item) => item.id === clipEditor.id);
+    if (!seg) return;
+    const timelineStart = Math.max(0, Number(clipEditorDraft.timelineStart ?? seg.start ?? 0));
+    const timelineEnd = Number.isFinite(clipEditorDraft.timelineEnd as number)
+      ? Number(clipEditorDraft.timelineEnd)
+      : (timelineStart + seg.duration);
+    const duration = Math.max(0.05, timelineEnd - timelineStart);
+    const trimStart = Math.max(0, Number(clipEditorDraft.trimStart ?? seg.trimStart ?? 0));
+    const sourceDuration = seg.sourceDuration || 0;
+    let trimEnd = Number.isFinite(clipEditorDraft.trimEnd as number)
+      ? Number(clipEditorDraft.trimEnd)
+      : (sourceDuration > 0 ? sourceDuration : trimStart + duration);
+    if (sourceDuration > 0) trimEnd = Math.min(trimEnd, sourceDuration);
+    trimEnd = Math.max(trimStart + 0.05, trimEnd);
+    updateClipEdit(clipEditor.id, {
+      timelineStart,
+      duration,
+      trimStart,
+      trimEnd,
+      hue: Number(clipEditorDraft.hue ?? 0),
+      contrast: Number(clipEditorDraft.contrast ?? 1),
+      brightness: Number(clipEditorDraft.brightness ?? 1),
+      rotate: Number(clipEditorDraft.rotate ?? 0),
+      flipH: !!clipEditorDraft.flipH,
+      flipV: !!clipEditorDraft.flipV,
+      invert: !!clipEditorDraft.invert,
+    });
+    closeClipEditor();
+  };
+
+  const updateClipEditorDraft = useCallback((patch: Partial<ClipEdit> & { timelineStart?: number; timelineEnd?: number }) => {
+    setClipEditorDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
 
   const handleClipAddToLibrary = async (path: string) => {
     const exists = library.some((item) => item.path === path);
@@ -964,18 +1261,36 @@ const App = () => {
       const opened = await openProject();
       if (opened) {
         const project = opened.project as any;
-        const nextVideos = Array.isArray(project?.clips) ? project.clips.map((c: any) => c?.path).filter(Boolean) : [];
+        const clipList = Array.isArray(project?.clips) ? project.clips.filter((c: any) => c?.path) : [];
+        const nextVideos = clipList.map((c: any) => c?.path).filter(Boolean);
+        const nextIds = nextVideos.map(() => makeId());
         const nextNames: Record<string, string> = {};
-        if (Array.isArray(project?.clips)) {
-          project.clips.forEach((c: any) => {
-            if (c?.path && c.label) nextNames[c.path] = c.label;
-          });
-        }
+        const nextEdits: Record<string, ClipEdit> = {};
+        clipList.forEach((c: any, idx: number) => {
+          if (c?.path && c.label) nextNames[c.path] = c.label;
+          const edit: ClipEdit = {};
+          if (Number.isFinite(c?.trimStart)) edit.trimStart = Number(c.trimStart);
+          if (Number.isFinite(c?.trimEnd)) edit.trimEnd = Number(c.trimEnd);
+          if (Number.isFinite(c?.duration)) edit.duration = Number(c.duration);
+          if (Number.isFinite(c?.start)) edit.timelineStart = Number(c.start);
+          if (Number.isFinite(c?.hue)) edit.hue = Number(c.hue);
+          if (Number.isFinite(c?.contrast)) edit.contrast = Number(c.contrast);
+          if (Number.isFinite(c?.brightness)) edit.brightness = Number(c.brightness);
+          if (Number.isFinite(c?.rotate)) edit.rotate = Number(c.rotate);
+          if (typeof c?.flipH === 'boolean') edit.flipH = c.flipH;
+          if (typeof c?.flipV === 'boolean') edit.flipV = c.flipV;
+          if (typeof c?.invert === 'boolean') edit.invert = c.invert;
+          if (Object.keys(edit).length > 0) {
+            nextEdits[nextIds[idx]] = edit;
+          }
+        });
         setSession((prev) => ({
           ...prev,
           projectSavePath: opened.path,
           audioPath: project?.audio?.path ?? undefined,
           videoPaths: nextVideos,
+          videoIds: nextIds,
+          clipEdits: nextEdits,
           videoNames: nextNames,
           playhead: typeof project?.playhead === 'number' ? project.playhead : 0,
           layers: Array.isArray(project?.layers) ? project.layers : [],
@@ -1248,15 +1563,18 @@ const App = () => {
     let ctx: AudioContext | null = null;
     let source: MediaElementAudioSourceNode | null = null;
     let analyser: AnalyserNode | null = null;
+    let gain: GainNode | null = null;
     const cleanup = () => {
       try { source?.disconnect(); } catch {}
       try { analyser?.disconnect(); } catch {}
+      try { gain?.disconnect(); } catch {}
       if (ctx) {
         try { ctx.close(); } catch {}
       }
       spectroAudioCtxRef.current = null;
       spectroSourceRef.current = null;
       spectroAnalyserRef.current = null;
+      spectroGainRef.current = null;
     };
     try {
       const AudioCtor = window.AudioContext || (window as WebAudioWindow).webkitAudioContext;
@@ -1264,13 +1582,16 @@ const App = () => {
       ctx = new AudioCtor();
       source = ctx.createMediaElementSource(audio);
       analyser = ctx.createAnalyser();
+      gain = ctx.createGain();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.7;
       source.connect(analyser);
-      analyser.connect(ctx.destination);
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
       spectroAudioCtxRef.current = ctx;
       spectroSourceRef.current = source;
       spectroAnalyserRef.current = analyser;
+      spectroGainRef.current = gain;
       const onPlay = () => { void ctx?.resume(); };
       audio.addEventListener('play', onPlay);
       return () => {
@@ -1283,19 +1604,25 @@ const App = () => {
     }
   }, [audioEl]);
 
+  useEffect(() => {
+    const gain = spectroGainRef.current;
+    if (!gain) return;
+    gain.gain.value = Math.min(1, Math.max(0, volume));
+  }, [volume]);
+
   const resolveActiveClip = useCallback((playheadSec: number) => {
-    const paths = session.videoPaths ?? [];
-    let acc = 0;
-    for (const p of paths) {
-      const dur = videoDurations[p] ?? 0;
-      const next = acc + dur;
-      if (playheadSec <= next) {
-        return { path: p, local: Math.max(0, playheadSec - acc), duration: dur };
+    for (const seg of clipSegments) {
+      const start = seg.start ?? 0;
+      const end = seg.end ?? (start + seg.duration);
+      if (playheadSec >= start && playheadSec <= end) {
+        const rel = Math.max(0, playheadSec - start);
+        const loopLen = Math.max(0.05, seg.trimmedLength || (seg.sourceDuration || 0));
+        const local = seg.trimStart + (loopLen > 0 ? (rel % loopLen) : 0);
+        return { path: seg.path, local, duration: seg.duration };
       }
-      acc = next;
     }
     return null;
-  }, [session.videoPaths, videoDurations]);
+  }, [clipSegments]);
 
   const renderPreviewFrame = useCallback(async () => {
     if (previewBusyRef.current) {
@@ -1630,6 +1957,7 @@ const App = () => {
                   onDurationChange={(d) => setAudioDuration(d)}
                   onPlayingChange={(p) => setIsPlaying(p)}
                   volume={volume}
+                  useElementVolume={false}
                   hideBuiltInControls
                   hideCanvas
                   onAudioElement={(el) => { setAudioEl(el); }}
@@ -1638,29 +1966,29 @@ const App = () => {
               <div style={{ marginTop: 4 }}>
                 {(session.videoPaths?.length ?? 0) > 0 ? (
                   <Storyboard
-                    paths={session.videoPaths ?? []}
-                    onChange={(next) => {
-                      setSession((prev) => ({ ...prev, videoPaths: next }));
-                      void updateProjectDirty(true);
-                    }}
-                    durations={videoDurations}
-                    names={clipNames}
-                    missingPaths={missingPaths}
-                    totalDuration={audioDuration}
+                    segments={clipSegments.map((seg, idx) => ({
+                      id: seg.id,
+                      path: seg.path,
+                      index: idx,
+                      label: clipNames[seg.path] ?? seg.path,
+                      duration: seg.duration,
+                      start: seg.start ?? 0,
+                      trimStart: seg.trimStart,
+                      trimEnd: seg.trimEnd,
+                      sourceDuration: seg.sourceDuration,
+                      missing: missingPaths.has(seg.path),
+                    }))}
+                    totalDuration={timelineDuration}
                     zoom={timelineZoom}
                     scroll={timelineScroll}
                     playhead={session.playhead ?? 0}
                     theme={theme}
-                    onContextMenu={openClipContextMenu}
-                    onDoubleClick={(path) => {
-                      const hit = (library.find((i) => i.path === path));
-                      if (hit) {
-                        setCollapsed((prev) => ({ ...prev, library: false }));
-                        setLibrarySelectedId(hit.id);
-                      } else {
-                        setCollapsed((prev) => ({ ...prev, library: false }));
-                      }
-                    }}
+                    onReorder={handleReorderClips}
+                    onRemove={removeClipAt}
+                    onTrimChange={(id, trimStart, duration) => applyTrimEdit(id, trimStart, duration)}
+                    onDurationChange={(id, duration) => applyDurationEdit(id, duration)}
+                    onContextMenu={(seg, x, y) => openClipContextMenu(seg.id, seg.path, seg.index, x, y)}
+                    onDoubleClick={(seg) => handleClipEdit(seg.id, seg.path, seg.index)}
                   />
                 ) : (
                   <div className="muted" style={{ marginTop: 2 }}>No clips. Use Browse or From Library to include files.</div>
@@ -1724,7 +2052,20 @@ const App = () => {
               {layers.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {layers.map((layer) => (
-                    <div key={layer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--panel-alt)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div
+                      key={layer.id}
+                      onClick={() => openEditLayer(layer)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '8px 10px',
+                        background: selectedLayerId === layer.id ? hexToRgba(layer.color, 0.16) : 'var(--panel-alt)',
+                        border: `1px solid ${selectedLayerId === layer.id ? hexToRgba(layer.color, 0.45) : 'var(--border)'}`,
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                      }}
+                    >
                       <div style={{ width: 16, height: 16, borderRadius: 4, background: layer.color }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600 }}>{layer.type === 'text' ? 'Text Layer' : 'Spectrograph Layer'}</div>
@@ -1734,19 +2075,20 @@ const App = () => {
                             : `Mode: ${(layer as any).mode ?? 'bar'} @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%)`}
                         </div>
                       </div>
-                      <button className="pill-btn" type="button" onClick={() => openEditLayer(layer)}>Edit</button>
-                      <button className="pill-btn" type="button" onClick={() => duplicateLayer(layer)}>Duplicate</button>
-                      <button className="pill-btn" type="button" onClick={() => deleteLayer(layer.id)}>Delete</button>
+                      <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); openEditLayer(layer); }}>Edit</button>
+                      <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); duplicateLayer(layer); }}>Duplicate</button>
+                      <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}>Delete</button>
                     </div>
                   ))}
                 </div>
               )}
               {layerDialogOpen && (
-                <div className="panel" style={{ marginTop: 10, padding: 12 }}>
+                <div className="panel" style={{ marginTop: 10, padding: 12, background: selectedLayer ? hexToRgba(selectedLayer.color, 0.12) : 'var(--panel-alt)', borderColor: selectedLayer ? hexToRgba(selectedLayer.color, 0.35) : 'var(--border)' }}>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       Type
                       <select
+                        className="pill-select"
                         value={layerDraft.type ?? 'spectrograph'}
                         onChange={(e) => {
                           const nextType = e.target.value as LayerType;
@@ -1869,14 +2211,18 @@ const App = () => {
                       </span>
                     </label>
                 {layerDraft.type === 'spectrograph' && (
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    Mode
-                    <select value={layerDraft.mode ?? 'bar'} onChange={(e) => updateLayerDraftField({ mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' })}>
-                      <option value="bar">Bar</option>
-                      <option value="line">Line</option>
-                      <option value="solid">Solid</option>
-                      <option value="dots">Dots</option>
-                    </select>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      Mode
+                      <select
+                        className="pill-select"
+                        value={layerDraft.mode ?? 'bar'}
+                        onChange={(e) => updateLayerDraftField({ mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' })}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="line">Line</option>
+                        <option value="solid">Solid</option>
+                        <option value="dots">Dots</option>
+                      </select>
                   </label>
                 )}
                 {layerDraft.type === 'spectrograph' && (
@@ -1976,9 +2322,9 @@ const App = () => {
                       {FONT_FACE_OPTIONS.map((name) => (<option value={name} key={name} />))}
                     </datalist>
                   </div>
-                  <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                    <button type="button" onClick={saveLayerDraft}>OK</button>
-                    <button type="button" onClick={() => { setLayerDialogOpen(false); }}>Cancel</button>
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="pill-btn" type="button" onClick={() => { setLayerDialogOpen(false); }}>Cancel</button>
+                    <button className="pill-btn" type="button" onClick={saveLayerDraft}>OK</button>
                   </div>
                 </div>
               )}
@@ -2093,6 +2439,160 @@ const App = () => {
                 }}>
                   <span>Use Selected</span>
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {clipEditor && clipEditorDraft && (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}
+            onClick={closeClipEditor}
+          >
+            <div
+              style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 18, width: 620, maxWidth: '94vw' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Clip Properties</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10 }}>
+                <label style={{ fontWeight: 600 }}>Path</label>
+                <input type="text" readOnly value={clipEditor.path} style={{ width: '100%' }} />
+                <label style={{ fontWeight: 600 }}>Timeline Start</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.timelineStart ?? 0}
+                  min={0}
+                  step={0.05}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setClipEditorDraft((prev) => {
+                      if (!prev) return prev;
+                      const safeStart = Number.isFinite(next) ? Math.max(0, next) : 0;
+                      const end = prev.timelineEnd ?? safeStart + (prev.duration ?? 0.05);
+                      return { ...prev, timelineStart: safeStart, timelineEnd: Math.max(safeStart + 0.05, end) };
+                    });
+                  }}
+                />
+                <label style={{ fontWeight: 600 }}>Timeline End</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.timelineEnd ?? 0}
+                  min={0}
+                  step={0.05}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setClipEditorDraft((prev) => {
+                      if (!prev) return prev;
+                      const safeEnd = Number.isFinite(next) ? Math.max(0, next) : 0;
+                      const start = prev.timelineStart ?? 0;
+                      return { ...prev, timelineEnd: Math.max(start + 0.05, safeEnd) };
+                    });
+                  }}
+                />
+                <label style={{ fontWeight: 600 }}>Trim Start</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.trimStart ?? 0}
+                  min={0}
+                  step={0.05}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setClipEditorDraft((prev) => {
+                      if (!prev) return prev;
+                      const safeStart = Number.isFinite(next) ? Math.max(0, next) : 0;
+                      const end = prev.trimEnd ?? safeStart + 0.05;
+                      return { ...prev, trimStart: safeStart, trimEnd: Math.max(safeStart + 0.05, end) };
+                    });
+                  }}
+                />
+                <label style={{ fontWeight: 600 }}>Trim End</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.trimEnd ?? 0}
+                  min={0}
+                  step={0.05}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setClipEditorDraft((prev) => {
+                      if (!prev) return prev;
+                      const safeEnd = Number.isFinite(next) ? Math.max(0, next) : 0;
+                      const start = prev.trimStart ?? 0;
+                      return { ...prev, trimEnd: Math.max(start + 0.05, safeEnd) };
+                    });
+                  }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 10, marginTop: 14 }}>
+                <label style={{ fontWeight: 600 }}>Hue</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.hue ?? 0}
+                  min={-180}
+                  max={180}
+                  step={1}
+                  onChange={(e) => updateClipEditorDraft({ hue: Number(e.target.value) })}
+                />
+                <label style={{ fontWeight: 600 }}>Contrast</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.contrast ?? 1}
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  onChange={(e) => updateClipEditorDraft({ contrast: Number(e.target.value) })}
+                />
+                <label style={{ fontWeight: 600 }}>Brightness</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.brightness ?? 1}
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  onChange={(e) => updateClipEditorDraft({ brightness: Number(e.target.value) })}
+                />
+                <label style={{ fontWeight: 600 }}>Rotate</label>
+                <input
+                  type="number"
+                  value={clipEditorDraft.rotate ?? 0}
+                  min={0}
+                  max={360}
+                  step={1}
+                  onChange={(e) => updateClipEditorDraft({ rotate: Number(e.target.value) })}
+                />
+                <label style={{ fontWeight: 600 }}>Flip / Invert</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="pill-btn pill-btn--compact"
+                    type="button"
+                    aria-pressed={!!clipEditorDraft.flipH}
+                    onClick={() => updateClipEditorDraft({ flipH: !clipEditorDraft.flipH })}
+                    style={{ borderColor: clipEditorDraft.flipH ? 'var(--accent)' : 'var(--border)' }}
+                  >
+                    <span>Flip H</span>
+                  </button>
+                  <button
+                    className="pill-btn pill-btn--compact"
+                    type="button"
+                    aria-pressed={!!clipEditorDraft.flipV}
+                    onClick={() => updateClipEditorDraft({ flipV: !clipEditorDraft.flipV })}
+                    style={{ borderColor: clipEditorDraft.flipV ? 'var(--accent)' : 'var(--border)' }}
+                  >
+                    <span>Flip V</span>
+                  </button>
+                  <button
+                    className="pill-btn pill-btn--compact"
+                    type="button"
+                    aria-pressed={!!clipEditorDraft.invert}
+                    onClick={() => updateClipEditorDraft({ invert: !clipEditorDraft.invert })}
+                    style={{ borderColor: clipEditorDraft.invert ? 'var(--accent)' : 'var(--border)' }}
+                  >
+                    <span>Invert</span>
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="pill-btn" type="button" onClick={closeClipEditor}>Cancel</button>
+                <button className="pill-btn" type="button" onClick={applyClipEditor}>Save</button>
               </div>
             </div>
           </div>
@@ -2293,7 +2793,7 @@ const App = () => {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => startRenameClip(contextMenu.path, contextMenu.index)}>Rename</button>
-              <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipEdit(contextMenu.path)}>Edit</button>
+              <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipEdit(contextMenu.id, contextMenu.path, contextMenu.index)}>Edit</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipAddToLibrary(contextMenu.path)}>Add to Library</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => duplicateClipAt(contextMenu.index)}>Duplicate</button>
               <button className="pill-btn pill-btn--compact" type="button" onClick={() => handleClipInfo(contextMenu.path)}>File Info</button>

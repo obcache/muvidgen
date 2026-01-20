@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MuvidGen renderer CLI
+muvid renderer CLI
 
 Reads a project JSON description and renders a composed MP4 via ffmpeg.
 MVP pipeline:
@@ -8,7 +8,7 @@ MVP pipeline:
   2) If an audio file is provided, mux it with the concatenated video (shortest wins)
 
 Environment overrides:
-  MUVIDGEN_FFMPEG  -> absolute path to ffmpeg binary (default: ffmpeg on PATH)
+  muvid_FFMPEG  -> absolute path to ffmpeg binary (default: ffmpeg on PATH)
 
 Usage:
   python renderer/python/main.py <path/to/project.json>
@@ -45,12 +45,12 @@ def which(cmd: str) -> Optional[str]:
 
 
 def ffmpeg_exe() -> str:
-    exe = os.environ.get("MUVIDGEN_FFMPEG") or "ffmpeg"
+    exe = os.environ.get("muvid_FFMPEG") or "ffmpeg"
     return exe
 
 
 def ffprobe_exe() -> str:
-    override = os.environ.get("MUVIDGEN_FFPROBE")
+    override = os.environ.get("muvid_FFPROBE")
     if override:
         return override
     ff = ffmpeg_exe()
@@ -71,7 +71,7 @@ def ffprobe_exe() -> str:
 def check_ffmpeg() -> bool:
     exe = ffmpeg_exe()
     if not which(exe):
-        eprint("[renderer] ffmpeg not found on PATH; set MUVIDGEN_FFMPEG or bundle ffmpeg.")
+        eprint("[renderer] ffmpeg not found on PATH; set muvid_FFMPEG or bundle ffmpeg.")
         return False
     try:
         subprocess.run([exe, "-hide_banner", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -87,7 +87,7 @@ def run_ffmpeg(args: List[str], with_progress: bool = True) -> int:
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except FileNotFoundError:
-        eprint("[renderer] ffmpeg not found. Set MUVIDGEN_FFMPEG.")
+        eprint("[renderer] ffmpeg not found. Set muvid_FFMPEG.")
         return 127
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -96,7 +96,7 @@ def run_ffmpeg(args: List[str], with_progress: bool = True) -> int:
 
 
 def ensure_tmp_dir(base: str) -> str:
-    d = os.path.join(base, "muvidgen")
+    d = os.path.join(base, "muvid")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -141,6 +141,125 @@ def concat_videos_to_h264(work_dir: str, clips: List[str]) -> Tuple[int, str]:
     code = run_ffmpeg(args)
     return code, out_path
 
+
+def build_clip_filter_chain(clip: Dict[str, Any]) -> Optional[str]:
+    parts: List[str] = []
+    hue = clip.get("hue")
+    if hue is not None:
+        try:
+            hue_val = float(hue)
+            if abs(hue_val) > 0.001:
+                parts.append(f"hue=h={hue_val}")
+        except Exception:
+            pass
+    contrast = clip.get("contrast")
+    brightness = clip.get("brightness")
+    if contrast is not None or brightness is not None:
+        try:
+            c_val = float(contrast) if contrast is not None else 1.0
+            b_val = float(brightness) if brightness is not None else 1.0
+            b_val = max(-1.0, min(1.0, b_val - 1.0))
+            parts.append(f"eq=contrast={c_val}:brightness={b_val}")
+        except Exception:
+            pass
+    rotate = clip.get("rotate")
+    if rotate is not None:
+        try:
+            rot_val = float(rotate)
+            if abs(rot_val) > 0.001:
+                radians = rot_val * 3.14159265 / 180.0
+                parts.append(f"rotate={radians}:fillcolor=black")
+        except Exception:
+            pass
+    if clip.get("flipH"):
+        parts.append("hflip")
+    if clip.get("flipV"):
+        parts.append("vflip")
+    if clip.get("invert"):
+        parts.append("negate")
+    if not parts:
+        return None
+    return ",".join(parts)
+
+
+def render_blank_clip(work_dir: str, duration: float, size: Tuple[int, int]) -> str:
+    out_path = os.path.join(work_dir, f"gap_{int(duration * 1000)}ms.mp4")
+    width, height = size
+    args = [
+        "-hide_banner",
+        "-y",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c=black:s={width}x{height}:d={duration}",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        out_path,
+    ]
+    code = run_ffmpeg(args)
+    if code != 0:
+        raise RuntimeError(f"Failed to render blank clip ({code})")
+    return out_path
+
+
+def render_clip_segment(work_dir: str, clip: Dict[str, Any], idx: int) -> str:
+    path = clip.get("path")
+    if not path:
+        raise ValueError("Missing clip path")
+    trim_start = float(clip.get("trimStart") or 0)
+    trim_end = clip.get("trimEnd")
+    trim_end_val = float(trim_end) if trim_end is not None else None
+    duration = float(clip.get("duration") or 0)
+    seg_len = None
+    if trim_end_val is not None:
+        seg_len = max(0.0, trim_end_val - trim_start)
+    loop = bool(seg_len and duration > seg_len + 0.01)
+    out_path = os.path.join(work_dir, f"clip_{idx:04d}.mp4")
+    args = [
+        "-hide_banner",
+        "-y",
+        "-nostats",
+        "-progress",
+        "pipe:1",
+    ]
+    if loop:
+        args += ["-stream_loop", "-1"]
+    if trim_start > 0:
+        args += ["-ss", f"{trim_start:.3f}"]
+    if trim_end_val is not None and trim_end_val > trim_start:
+        args += ["-to", f"{trim_end_val:.3f}"]
+    args += ["-i", path]
+    if duration > 0:
+        args += ["-t", f"{duration:.3f}"]
+    args += ["-an"]
+    chain = build_clip_filter_chain(clip)
+    if chain:
+        args += ["-vf", chain]
+    args += [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        out_path,
+    ]
+    code = run_ffmpeg(args)
+    if code != 0:
+        raise RuntimeError(f"Clip render failed ({code})")
+    return out_path
 
 def mux_audio_video(temp_video: str, audio_path: Optional[str], output_path: str, layers: List[Dict[str, Any]], canvas: Optional[Tuple[int, int]] = None) -> int:
     has_audio = bool(audio_path)
@@ -195,8 +314,44 @@ def hex_to_rgb(color: str) -> str:
     return "0x" + c.upper()
 
 
+def parse_hex_color(color: str) -> Tuple[int, int, int]:
+    if not color:
+        return (255, 255, 255)
+    c = color.strip()
+    if c.startswith("#"):
+        c = c[1:]
+    if len(c) == 3:
+        c = "".join([ch * 2 for ch in c])
+    if len(c) != 6:
+        return (255, 255, 255)
+    try:
+        r = int(c[0:2], 16)
+        g = int(c[2:4], 16)
+        b = int(c[4:6], 16)
+        return (r, g, b)
+    except Exception:
+        return (255, 255, 255)
+
+
 def escape_text(txt: str) -> str:
     return txt.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def resolve_font_file(font: str) -> Optional[str]:
+    if not font:
+        return None
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "client", "public", "fonts"))
+    candidates = [
+        f"{font}.ttf",
+        f"{font.replace(' ', '')}.ttf",
+        f"{font.replace(' ', '-')}.ttf",
+    ]
+    for name in candidates:
+        path = os.path.join(base_dir, name)
+        if os.path.isfile(path):
+            normalized = path.replace("\\", "/")
+            return normalized.replace(":", r"\:")
+    return None
 
 
 def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: Optional[Tuple[int, int]] = None) -> Tuple[Optional[str], str]:
@@ -229,14 +384,28 @@ def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: O
             x = float(layer.get("x", 0) or 0)
             y = float(layer.get("y", 0) or 0)
             spec_tag = f"[spec{idx}]"
+            w = int(layer.get("width") or 640)
+            h = int(layer.get("height") or 200)
+            opacity = float(layer.get("opacity") or 1.0)
+            invert = bool(layer.get("invert"))
+            color_value = layer.get("color") or ""
+            tint = parse_hex_color(color_value) if color_value else None
             if mode == "line":
-                filter_parts.append(f"[as{spec_idx}]showfreqs=mode=line:ascale=log:win_size=2048:size=640x200{spec_tag}")
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=line:ascale=log:win_size=2048:size={w}x{h}"
             elif mode == "dots":
-                filter_parts.append(f"[as{spec_idx}]showfreqs=mode=dot:ascale=log:win_size=2048:size=640x200{spec_tag}")
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=dot:ascale=log:win_size=2048:size={w}x{h}"
             elif mode == "solid":
-                filter_parts.append(f"[as{spec_idx}]showspectrum=s=640x200:mode=combined:color=intensity:scale=log:win_func=hann{spec_tag}")
+                spec_chain = f"[as{spec_idx}]showspectrum=s={w}x{h}:mode=combined:color=intensity:scale=log:win_func=hann"
             else:
-                filter_parts.append(f"[as{spec_idx}]showspectrum=s=640x200:mode=separate:color=intensity:scale=log:win_func=hann{spec_tag}")
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=bar:ascale=log:win_size=2048:size={w}x{h}"
+            if tint:
+                r, g, b = tint
+                spec_chain += f",format=gray,format=rgb24,lutrgb=r='val*{r}/255':g='val*{g}/255':b='val*{b}/255'"
+            if invert:
+                spec_chain += ",vflip"
+            if opacity < 1.0:
+                spec_chain += f",format=rgba,colorchannelmixer=aa={opacity}"
+            filter_parts.append(f"{spec_chain}{spec_tag}")
             filter_parts.append(
                 f"{current_v}{spec_tag}overlay=x=W*{x}:y=H*{y}:format=auto[v{lid}]"
             )
@@ -244,17 +413,21 @@ def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: O
             spec_idx += 1
         elif layer.get("type") == "text":
             text = escape_text(layer.get("text") or "Text")
-            color = hex_to_rgb(layer.get("color") or "#ffffff")
+            opacity = float(layer.get("opacity") or 1.0)
+            color = hex_to_rgb(layer.get("color") or "#ffffff") + f"@{opacity:.3f}"
             font = escape_text(layer.get("font") or "Segoe UI")
+            fontfile = resolve_font_file(layer.get("font") or "")
             fontsize = int(layer.get("fontSize") or 12)
             x = float(layer.get("x", 0) or 0)
             y = float(layer.get("y", 0) or 0)
-            outline_color = hex_to_rgb(layer.get("outlineColor") or "#000000")
+            outline_color = hex_to_rgb(layer.get("outlineColor") or "#000000") + f"@{opacity:.3f}"
             outline_width = max(0, int(layer.get("outlineWidth") or 0))
-            shadow_color = hex_to_rgb(layer.get("shadowColor") or "#000000")
+            shadow_alpha = max(0.0, min(1.0, opacity * 0.6))
+            shadow_color = hex_to_rgb(layer.get("shadowColor") or "#000000") + f"@{shadow_alpha:.3f}"
             shadow_distance = int(layer.get("shadowDistance") or 0)
+            font_arg = f":fontfile='{fontfile}'" if fontfile else f":font='{font}'"
             filter_parts.append(
-                f"{current_v}drawtext=text='{text}':fontcolor={color}:fontsize={fontsize}:font='{font}':x=W*{x}:y=H*{y}:bordercolor={outline_color}:borderw={outline_width}:shadowcolor={shadow_color}@0.6:shadowx={shadow_distance}:shadowy={shadow_distance}[v{lid}]"
+                f"{current_v}drawtext=text='{text}':fontcolor={color}:fontsize={fontsize}{font_arg}:x=W*{x}:y=H*{y}:bordercolor={outline_color}:borderw={outline_width}:shadowcolor={shadow_color}:shadowx={shadow_distance}:shadowy={shadow_distance}[v{lid}]"
             )
             current_v = f"[v{lid}]"
 
@@ -303,7 +476,7 @@ def main(argv: List[str]) -> int:
         return 2
 
     audio = (project.get("audio") or {}).get("path")
-    clips = [c.get("path") for c in (project.get("clips") or []) if isinstance(c, dict) and c.get("path")]
+    clip_entries = [c for c in (project.get("clips") or []) if isinstance(c, dict) and c.get("path")]
     output = (project.get("output") or {}).get("path")
     layers = project.get("layers") or []
     metadata = project.get("metadata") or {}
@@ -320,13 +493,13 @@ def main(argv: List[str]) -> int:
 
     print("[renderer] Loaded project")
     print(f"  audio: {audio or 'none'}")
-    print(f"  clips: {len(clips)}")
-    for idx, p in enumerate(clips):
-        print(f"    - index={idx} path={p}")
+    print(f"  clips: {len(clip_entries)}")
+    for idx, c in enumerate(clip_entries):
+        print(f"    - index={idx} path={c.get('path')}")
     print(f"  output: {output or '(not specified)'}")
     print(f"  layers: {len(layers)}")
 
-    if not clips:
+    if not clip_entries:
         eprint("[renderer] No clips provided; nothing to render.")
         return 2
     if not output:
@@ -340,8 +513,9 @@ def main(argv: List[str]) -> int:
         return 2
 
     # Validate paths
-    for p in clips:
-        if not os.path.isfile(p):
+    for c in clip_entries:
+        p = c.get("path")
+        if not p or not os.path.isfile(p):
             eprint(f"[renderer] Missing clip: {p}")
             return 2
     if audio and not os.path.isfile(audio):
@@ -350,15 +524,77 @@ def main(argv: List[str]) -> int:
 
     # Estimate total duration from clips
     total_ms = 0
-    for p in clips:
+    for c in clip_entries:
+        p = c.get("path")
+        if not p:
+            continue
         d = ffprobe_duration_ms(p)
         if d is not None:
             total_ms += d
     if total_ms > 0:
         print(f"total_duration_ms={total_ms}")
 
-    work_dir = ensure_tmp_dir(os.path.join(os.path.dirname(project_path), ".muvidgen"))
-    code, tmp_video = concat_videos_to_h264(work_dir, clips)
+    work_dir = ensure_tmp_dir(os.path.join(os.path.dirname(project_path), ".muvid"))
+    clip_jobs: List[Dict[str, Any]] = []
+    cursor = 0.0
+    for idx, c in enumerate(clip_entries):
+        path = c.get("path")
+        if not path:
+            continue
+        trim_start = float(c.get("trimStart") or 0)
+        trim_end = c.get("trimEnd")
+        trim_end_val = float(trim_end) if trim_end is not None else None
+        if trim_end_val is not None and trim_end_val < trim_start:
+            trim_end_val = trim_start
+        duration = c.get("duration")
+        if duration is None:
+            if trim_end_val is not None:
+                duration = max(0.05, trim_end_val - trim_start)
+            else:
+                d = ffprobe_duration_ms(path)
+                if d is not None:
+                    duration = max(0.05, d / 1000.0 - trim_start)
+                else:
+                    duration = 0.0
+        try:
+            duration_val = max(0.05, float(duration))
+        except Exception:
+            duration_val = 0.05
+        start_val = c.get("start")
+        if isinstance(start_val, (int, float)):
+            start_val = max(cursor, float(start_val))
+        else:
+            start_val = cursor
+        clip_jobs.append({
+            "path": path,
+            "start": start_val,
+            "duration": duration_val,
+            "trimStart": trim_start,
+            "trimEnd": trim_end_val,
+            "hue": c.get("hue"),
+            "contrast": c.get("contrast"),
+            "brightness": c.get("brightness"),
+            "rotate": c.get("rotate"),
+            "flipH": c.get("flipH"),
+            "flipV": c.get("flipV"),
+            "invert": c.get("invert"),
+        })
+        cursor = max(cursor, start_val + duration_val)
+
+    render_paths: List[str] = []
+    current = 0.0
+    if not canvas_size:
+        canvas_size = (1920, 1080)
+    for idx, clip in enumerate(clip_jobs):
+        start_val = float(clip.get("start") or 0)
+        if start_val > current + 0.001:
+            gap = start_val - current
+            render_paths.append(render_blank_clip(work_dir, gap, canvas_size))
+            current += gap
+        render_paths.append(render_clip_segment(work_dir, clip, idx))
+        current += float(clip.get("duration") or 0)
+
+    code, tmp_video = concat_videos_to_h264(work_dir, render_paths)
     if code != 0:
         eprint(f"[renderer] Concat stage failed with code {code}")
         return code
