@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['E:\\Production\\Coding\\muvidgen\\renderer\\python\\main.py'],
+    ['E:\\Production\\Coding\\muvid\\renderer\\python\\main.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='muvidgen-renderer',
+    name='muvid-renderer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

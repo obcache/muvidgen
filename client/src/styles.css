@@ -233,6 +233,16 @@ label { color: var(--text); }
 .pill-btn i { color: var(--text); font-size: 15px; line-height: 1; }
 .pill-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+select.pill-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%), linear-gradient(135deg, var(--text) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 12px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
 .pill-btn--icon {
   padding: 6px 8px;
   min-width: 40px;

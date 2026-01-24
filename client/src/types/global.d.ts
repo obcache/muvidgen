@@ -12,6 +12,7 @@ export interface ElectronAPI {
   exportSession(request: ExportSessionRequest): Promise<void>;
   openAudioFile(): Promise<string | undefined>;
   openVideoFiles(): Promise<string[]>;
+  openImageFile(): Promise<string | undefined>;
   readFileBuffer(path: string): Promise<Uint8Array>;
   fileExists(path: string): Promise<boolean>;
   chooseProjectSavePath(defaultPath?: string): Promise<string | undefined>;

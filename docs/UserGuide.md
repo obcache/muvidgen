@@ -7,6 +7,17 @@ Muvid is a music visualizer generator that lets you assemble videos, audio, and 
 - Visualizer (spectrogram) and text overlays.
 - Render pipeline using ffmpeg.
 
+## Glossary
+- Stage: The active canvas area (16:9 or 9:16) where video and layers are composited.
+- Canvas: The fixed output resolution (1920x1080 or 1080x1920) used for preview and render.
+- Preview: The live, in-app view of the current playhead frame.
+- Timeline: The horizontal time scale shared by the waveform and storyboard.
+- Storyboard: The clip strip under the waveform showing video segments over time.
+- Playhead: The current time indicator used for preview and render.
+- Layer: A visual element that sits on top of video (spectrograph, text, image, particles).
+- Spectrograph: The audio visualizer generated from the audio frequency data.
+- Render: The final export operation that writes a video file.
+
 ## Quick Start
 1) Create a new project (File > New Project).
 2) Load audio (Media > Load Audio...).
@@ -175,4 +186,3 @@ Verify audio is loaded and a spectrograph layer exists. If needed, press Play on
 
 ### Missing media
 If a file path is missing, the clip will highlight and renders may fail. Re-add the file or update the path.
-

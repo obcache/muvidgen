@@ -16,7 +16,7 @@ export interface ClipSegment {
   invert?: boolean;
 }
 
-export type LayerType = 'spectrograph' | 'text';
+export type LayerType = 'spectrograph' | 'text' | 'image' | 'particles';
 
 export interface LayerConfigBase {
   id: string;
@@ -35,6 +35,16 @@ export interface SpectrographLayer extends LayerConfigBase {
   type: 'spectrograph';
   mode: 'bar' | 'line' | 'solid' | 'dots';
   invert?: boolean;
+  pathMode?: 'straight' | 'circular';
+  freqScale?: 'lin' | 'log' | 'rlog';
+  ampScale?: 'lin' | 'sqrt' | 'cbrt' | 'log';
+  averaging?: number;
+  mirrorX?: boolean;
+  mirrorY?: boolean;
+  barCount?: number;
+  barWidthPct?: number;
+  dotCount?: number;
+  solidPointCount?: number;
   outlineColor?: string;
   outlineWidth?: number;
   glowColor?: string;
@@ -60,7 +70,33 @@ export interface TextLayer extends LayerConfigBase {
   shadowDistance?: number;
 }
 
-export type LayerConfig = SpectrographLayer | TextLayer;
+export interface ImageLayer extends LayerConfigBase {
+  type: 'image';
+  imagePath: string;
+  invert?: boolean;
+  outlineColor?: string;
+  outlineWidth?: number;
+  glowColor?: string;
+  glowAmount?: number;
+  glowOpacity?: number;
+  shadowColor?: string;
+  shadowDistance?: number;
+  motionAffected?: boolean;
+}
+
+export interface ParticlesLayer extends LayerConfigBase {
+  type: 'particles';
+  direction?: number; // degrees
+  speed?: number; // pixels per second
+  sizeMin?: number; // pixels
+  sizeMax?: number; // pixels
+  opacityMin?: number; // 0..1
+  opacityMax?: number; // 0..1
+  audioResponsive?: boolean;
+  particleCount?: number;
+}
+
+export type LayerConfig = SpectrographLayer | TextLayer | ImageLayer | ParticlesLayer;
 
 export interface MediaLibraryItem {
   id: string;

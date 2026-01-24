@@ -120,6 +120,9 @@ const mockBridge: ElectronAPI = {
   async openVideoFiles() {
     return [];
   },
+  async openImageFile() {
+    return undefined;
+  },
   async readFileBuffer() {
     return new Uint8Array();
   },
@@ -232,6 +235,10 @@ export const openAudioFile = async (): Promise<string | undefined> => {
 
 export const openVideoFiles = async (): Promise<string[]> => {
   return getBridge().openVideoFiles();
+};
+
+export const openImageFile = async (): Promise<string | undefined> => {
+  return getBridge().openImageFile();
 };
 
 export const readFileBuffer = async (filePath: string): Promise<Uint8Array> => {

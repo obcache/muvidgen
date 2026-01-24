@@ -181,6 +181,19 @@ ipcMain.handle('videos:open', async (): Promise<string[]> => {
   return result.filePaths;
 });
 
+ipcMain.handle('image:open', async (): Promise<string | undefined> => {
+  const result = await dialog.showOpenDialog({
+    title: 'Select image file',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return undefined;
+  return result.filePaths[0];
+});
+
 ipcMain.handle('file:exists', async (_event, filePath: string): Promise<boolean> => {
   if (!filePath || typeof filePath !== 'string') return false;
   try {
@@ -435,17 +448,39 @@ async function resolveRendererEntryPoint(): Promise<string> {
   );
 }
 
+async function resolveAppIcon(): Promise<string | undefined> {
+  const candidates = [
+    path.join(__dirname, '..', 'dist', 'ui', 'muvid_noText_logo.ico'),
+    path.join(__dirname, '..', '..', 'dist', 'ui', 'muvid_noText_logo.ico'),
+    path.join(__dirname, '..', 'client', 'public', 'ui', 'muvid_noText_logo.ico'),
+    path.join(__dirname, '..', '..', 'client', 'public', 'ui', 'muvid_noText_logo.ico'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let currentRenderChild: import('node:child_process').ChildProcess | null = null;
 let projectDirty: boolean = false;
 
 async function createWindow(): Promise<void> {
   const windowState = await loadWindowState();
+  const iconPath = await resolveAppIcon();
   const win = new BrowserWindow({
     width: windowState.width,
     height: windowState.height,
     x: windowState.x,
     y: windowState.y,
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

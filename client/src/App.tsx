@@ -6,6 +6,7 @@ import {
   saveSessionState,
   openAudioFile,
   openVideoFiles,
+  openImageFile,
   readFileBuffer,
   chooseProjectSavePath,
   startRender,
@@ -53,6 +54,56 @@ type ClipEdit = {
   flipH?: boolean;
   flipV?: boolean;
   invert?: boolean;
+};
+
+type LayerDraft = Partial<LayerConfig> & {
+  text?: string;
+  mode?: 'bar' | 'line' | 'solid' | 'dots';
+  font?: string;
+  fontSize?: number;
+  outlineColor?: string;
+  outlineWidth?: number;
+  glowColor?: string;
+  glowAmount?: number;
+  glowOpacity?: number;
+  shadowColor?: string;
+  shadowDistance?: number;
+  pathMode?: 'straight' | 'circular';
+  freqScale?: 'lin' | 'log' | 'rlog';
+  ampScale?: 'lin' | 'sqrt' | 'cbrt' | 'log';
+  averaging?: number;
+  mirrorX?: boolean;
+  mirrorY?: boolean;
+  barCount?: number;
+  barWidthPct?: number;
+  dotCount?: number;
+  solidPointCount?: number;
+  imagePath?: string;
+  motionAffected?: boolean;
+  direction?: number;
+  speed?: number;
+  sizeMin?: number;
+  sizeMax?: number;
+  opacityMin?: number;
+  opacityMax?: number;
+  audioResponsive?: boolean;
+  particleCount?: number;
+};
+
+type Particle = {
+  x: number;
+  y: number;
+  size: number;
+  opacity: number;
+  angleOffset: number;
+  speedScale: number;
+};
+
+type ParticleState = {
+  particles: Particle[];
+  lastTime: number;
+  width: number;
+  height: number;
 };
 
 type LocalSession = SessionState & {
@@ -219,7 +270,7 @@ const App = () => {
   const [volume, setVolume] = useState<number>(0.85);
   const waveRef = useRef<WaveformHandle | null>(null);
   const [layerDialogOpen, setLayerDialogOpen] = useState<boolean>(false);
-  const [layerDraft, setLayerDraft] = useState<Partial<LayerConfig> & { text?: string; mode?: 'bar' | 'line' | 'solid' | 'dots'; font?: string; fontSize?: number }>({});
+  const [layerDraft, setLayerDraft] = useState<LayerDraft>({});
   const [timelineZoom, setTimelineZoom] = useState<number>(1);
   const [timelineScroll, setTimelineScroll] = useState<number>(0);
   const layers = useMemo(() => session.layers ?? [], [session.layers]);
@@ -230,6 +281,7 @@ const App = () => {
   ), [canvasPreset]);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const imagePoolRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const audioMotionRef = useRef<any>(null);
   const spectroAudioCtxRef = useRef<AudioContext | null>(null);
@@ -241,6 +293,7 @@ const App = () => {
   const previewQueuedRef = useRef<boolean>(false);
   const spectroCacheRef = useRef<HTMLCanvasElement | null>(null);
   const spectroWorkRef = useRef<HTMLCanvasElement | null>(null);
+  const particleStateRef = useRef<Map<string, ParticleState>>(new Map());
   const USE_AUDIO_MOTION = false;
   const [library, setLibrary] = useState<MediaLibraryItem[]>([]);
   const [librarySelectedId, setLibrarySelectedId] = useState<string | null>(null);
@@ -498,12 +551,32 @@ const App = () => {
       rotate: 0,
       opacity: 1,
       reverse: false,
-      width: baseWidth,
-      height: Math.round(baseWidth * (canvasSize.height / canvasSize.width)),
+      width: type === 'image' ? 320 : baseWidth,
+      height: type === 'image' ? 320 : Math.round(baseWidth * (canvasSize.height / canvasSize.width)),
       lowCutHz: 40,
       highCutHz: 16000,
       mode: type === 'spectrograph' ? 'bar' : undefined,
       invert: type === 'spectrograph' ? false : undefined,
+      barCount: type === 'spectrograph' ? 96 : undefined,
+      barWidthPct: type === 'spectrograph' ? 0.8 : undefined,
+      dotCount: type === 'spectrograph' ? 96 : undefined,
+      solidPointCount: type === 'spectrograph' ? 96 : undefined,
+      pathMode: type === 'spectrograph' ? 'straight' : undefined,
+      freqScale: type === 'spectrograph' ? 'log' : undefined,
+      ampScale: type === 'spectrograph' ? 'log' : undefined,
+      averaging: type === 'spectrograph' ? 2 : undefined,
+      mirrorX: type === 'spectrograph' ? false : undefined,
+      mirrorY: type === 'spectrograph' ? false : undefined,
+      imagePath: type === 'image' ? '' : undefined,
+      motionAffected: type === 'image' ? true : undefined,
+      direction: type === 'particles' ? 0 : undefined,
+      speed: type === 'particles' ? 60 : undefined,
+      sizeMin: type === 'particles' ? 2 : undefined,
+      sizeMax: type === 'particles' ? 6 : undefined,
+      opacityMin: type === 'particles' ? 0.3 : undefined,
+      opacityMax: type === 'particles' ? 0.9 : undefined,
+      audioResponsive: type === 'particles' ? true : undefined,
+      particleCount: type === 'particles' ? 200 : undefined,
       text: type === 'text' ? 'Text' : undefined,
       font: type === 'text' ? 'Segoe UI' : undefined,
       fontSize: type === 'text' ? 12 : undefined,
@@ -532,8 +605,43 @@ const App = () => {
       normalized.rotate = Number.isFinite(normalized.rotate as number) ? normalized.rotate : 0;
       normalized.reverse = !!normalized.reverse;
       normalized.invert = !!normalized.invert;
+      normalized.barCount = Number.isFinite(normalized.barCount as number) ? Math.max(8, Number(normalized.barCount)) : 96;
+      normalized.barWidthPct = Number.isFinite(normalized.barWidthPct as number) ? Math.min(1, Math.max(0.1, Number(normalized.barWidthPct))) : 0.8;
+      normalized.dotCount = Number.isFinite(normalized.dotCount as number) ? Math.max(8, Number(normalized.dotCount)) : 96;
+      normalized.solidPointCount = Number.isFinite(normalized.solidPointCount as number) ? Math.max(8, Number(normalized.solidPointCount)) : 96;
+      normalized.pathMode = normalized.pathMode === 'circular' ? 'circular' : 'straight';
+      normalized.freqScale = normalized.freqScale === 'rlog' ? 'rlog' : normalized.freqScale === 'lin' ? 'lin' : 'log';
+      normalized.ampScale = normalized.ampScale === 'sqrt' || normalized.ampScale === 'cbrt' || normalized.ampScale === 'lin' ? normalized.ampScale : 'log';
+      normalized.averaging = Number.isFinite(normalized.averaging as number) ? Math.max(1, Math.round(Number(normalized.averaging))) : 2;
+      normalized.mirrorX = !!normalized.mirrorX;
+      normalized.mirrorY = !!normalized.mirrorY;
       normalized.lowCutHz = Number.isFinite(normalized.lowCutHz as number) ? normalized.lowCutHz : 40;
       normalized.highCutHz = Number.isFinite(normalized.highCutHz as number) ? normalized.highCutHz : 16000;
+    } else if (normalized.type === 'image') {
+      normalized.imagePath = normalized.imagePath ?? '';
+      normalized.opacity = Number.isFinite(normalized.opacity as number) ? normalized.opacity : 1;
+      normalized.rotate = Number.isFinite(normalized.rotate as number) ? normalized.rotate : 0;
+      normalized.reverse = !!normalized.reverse;
+      normalized.invert = !!normalized.invert;
+      normalized.width = Number.isFinite(normalized.width as number) ? Math.max(20, Number(normalized.width)) : 320;
+      normalized.height = Number.isFinite(normalized.height as number) ? Math.max(20, Number(normalized.height)) : 320;
+      normalized.outlineWidth = Number.isFinite(normalized.outlineWidth as number) ? Math.max(0, Number(normalized.outlineWidth)) : 0;
+      normalized.glowAmount = Number.isFinite(normalized.glowAmount as number) ? Math.max(0, Number(normalized.glowAmount)) : 0;
+      normalized.glowOpacity = Number.isFinite(normalized.glowOpacity as number) ? Math.min(1, Math.max(0, Number(normalized.glowOpacity))) : 0.4;
+      normalized.shadowDistance = Number.isFinite(normalized.shadowDistance as number) ? Math.max(0, Number(normalized.shadowDistance)) : 0;
+      normalized.motionAffected = typeof normalized.motionAffected === 'boolean' ? normalized.motionAffected : true;
+    } else if (normalized.type === 'particles') {
+      normalized.opacity = Number.isFinite(normalized.opacity as number) ? normalized.opacity : 1;
+      normalized.rotate = Number.isFinite(normalized.rotate as number) ? normalized.rotate : 0;
+      normalized.reverse = !!normalized.reverse;
+      normalized.direction = Number.isFinite(normalized.direction as number) ? Number(normalized.direction) : 0;
+      normalized.speed = Number.isFinite(normalized.speed as number) ? Math.max(0, Number(normalized.speed)) : 60;
+      normalized.sizeMin = Number.isFinite(normalized.sizeMin as number) ? Math.max(1, Number(normalized.sizeMin)) : 2;
+      normalized.sizeMax = Number.isFinite(normalized.sizeMax as number) ? Math.max(normalized.sizeMin ?? 2, Number(normalized.sizeMax)) : 6;
+      normalized.opacityMin = Number.isFinite(normalized.opacityMin as number) ? Math.min(1, Math.max(0, Number(normalized.opacityMin))) : 0.3;
+      normalized.opacityMax = Number.isFinite(normalized.opacityMax as number) ? Math.min(1, Math.max(normalized.opacityMin ?? 0.3, Number(normalized.opacityMax))) : 0.9;
+      normalized.audioResponsive = typeof normalized.audioResponsive === 'boolean' ? normalized.audioResponsive : true;
+      normalized.particleCount = Number.isFinite(normalized.particleCount as number) ? Math.max(10, Number(normalized.particleCount)) : 200;
     } else if (normalized.type === 'text') {
       normalized.text = normalized.text ?? 'Text';
       normalized.font = normalized.font ?? 'Segoe UI';
@@ -662,6 +770,28 @@ const App = () => {
       }
     }
   }, [session.videoPaths]);
+
+  useEffect(() => {
+    const pool = imagePoolRef.current;
+    const imagePaths = new Set(
+      (session.layers ?? [])
+        .filter((layer) => layer.type === 'image')
+        .map((layer) => (layer as any).imagePath)
+        .filter(Boolean)
+    );
+    for (const key of Array.from(pool.keys())) {
+      if (!imagePaths.has(key)) {
+        pool.delete(key);
+      }
+    }
+    for (const p of imagePaths) {
+      if (!pool.has(p)) {
+        const img = new Image();
+        img.src = toFileURL(p);
+        pool.set(p, img);
+      }
+    }
+  }, [session.layers]);
 
 
   useEffect(() => {
@@ -1119,6 +1249,17 @@ const App = () => {
     const nextDuration = Math.max(0.05, duration);
     updateClipEdit(id, { duration: nextDuration });
   }, [updateClipEdit]);
+
+  const handlePickImageForLayer = useCallback(async () => {
+    try {
+      const path = await openImageFile();
+      if (path) {
+        updateLayerDraftField({ imagePath: path });
+      }
+    } catch (err) {
+      console.warn('Failed to pick image', err);
+    }
+  }, [updateLayerDraftField]);
 
   const handleReorderClips = useCallback((from: number, to: number) => {
     setSession((prev) => {
@@ -1651,6 +1792,11 @@ const App = () => {
     ctx.fillStyle = '#0b0f16';
     ctx.fillRect(0, 0, logicalW, logicalH);
 
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(stageX, stageY, stageW, stageH);
+    ctx.clip();
+
     const active = resolveActiveClip(session.playhead ?? 0);
     if (active) {
       const vid = videoPoolRef.current.get(active.path);
@@ -1684,6 +1830,26 @@ const App = () => {
       }
     }
 
+    const analyser = spectroAnalyserRef.current;
+    let audioData: Uint8Array | null = null;
+    let audioAmplitude = 0;
+    if (analyser) {
+      audioData = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+      const live = !!audioEl && !audioEl.paused;
+      if (live) {
+        analyser.getByteFrequencyData(audioData as Uint8Array<ArrayBuffer>);
+        spectroLastDataRef.current = audioData.slice();
+      } else if (spectroLastDataRef.current && spectroLastDataRef.current.length === audioData.length) {
+        audioData.set(spectroLastDataRef.current);
+      } else {
+        analyser.getByteFrequencyData(audioData as Uint8Array<ArrayBuffer>);
+      }
+      let sum = 0;
+      for (let i = 0; i < audioData.length; i++) sum += audioData[i];
+      audioAmplitude = sum / (audioData.length * 255);
+    }
+    const nowMs = performance.now();
+
     // Draw layers
     for (const layer of layers) {
       const x = stageX + (layer.x ?? 0) * stageW;
@@ -1697,8 +1863,7 @@ const App = () => {
       const rotateRad = (rotateDeg * Math.PI) / 180;
       const reverse = !!layer.reverse;
       if (layer.type === 'spectrograph') {
-        const analyser = spectroAnalyserRef.current;
-        if (analyser) {
+        if (analyser && audioData) {
           const workCanvas = spectroWorkRef.current ?? document.createElement('canvas');
           if (!spectroWorkRef.current) spectroWorkRef.current = workCanvas;
           const barCanvasW = 512;
@@ -1708,19 +1873,49 @@ const App = () => {
           const workCtx = workCanvas.getContext('2d');
           if (!workCtx) continue;
           workCtx.clearRect(0, 0, barCanvasW, barCanvasH);
-          const data = new Uint8Array(analyser.frequencyBinCount);
-          const live = !!audioEl && !audioEl.paused;
-          if (live) {
-            analyser.getByteFrequencyData(data);
-            spectroLastDataRef.current = data.slice();
-          } else if (spectroLastDataRef.current && spectroLastDataRef.current.length === data.length) {
-            data.set(spectroLastDataRef.current);
-          } else {
-            analyser.getByteFrequencyData(data);
-          }
-          const barCount = 96;
+          const data = audioData;
+          const mode = layer.mode ?? 'bar';
+          const pathMode = layer.pathMode ?? 'straight';
+          const freqScale = layer.freqScale ?? 'log';
+          const ampScale = layer.ampScale ?? 'log';
+          const barCount = mode === 'dots'
+            ? (layer.dotCount ?? 96)
+            : mode === 'solid'
+              ? (layer.solidPointCount ?? 96)
+              : (layer.barCount ?? 96);
           const step = Math.max(1, Math.floor(data.length / barCount));
           const barW = barCanvasW / barCount;
+          const barWidthPct = mode === 'bar' || mode === 'solid' ? (layer.barWidthPct ?? 0.8) : 0.6;
+          const averaging = Math.max(1, Math.round(layer.averaging ?? 1));
+          const scaleAmp = (v: number) => {
+            if (ampScale === 'lin') return v;
+            if (ampScale === 'sqrt') return Math.sqrt(v);
+            if (ampScale === 'cbrt') return Math.cbrt(v);
+            return Math.log10(1 + 9 * v);
+          };
+          const scaleIndex = (i: number) => {
+            if (freqScale === 'lin') return i;
+            const t = i / Math.max(1, barCount - 1);
+            if (freqScale === 'rlog') {
+              return Math.floor((1 - Math.pow(1 - t, 2)) * (barCount - 1));
+            }
+            return Math.floor(Math.pow(t, 2) * (barCount - 1));
+          };
+          const sampleValue = (i: number) => {
+            const sIdx = scaleIndex(i);
+            if (averaging <= 1) {
+              return data[sIdx * step] / 255;
+            }
+            const half = Math.floor(averaging / 2);
+            let sum = 0;
+            let count = 0;
+            for (let o = -half; o <= half; o++) {
+              const idx = Math.min(barCount - 1, Math.max(0, sIdx + o));
+              sum += data[idx * step] / 255;
+              count += 1;
+            }
+            return sum / Math.max(1, count);
+          };
           const fill = layer.color ?? '';
           let gradient: CanvasGradient | null = null;
           if (!fill) {
@@ -1730,12 +1925,40 @@ const App = () => {
             gradient.addColorStop(1, '#00ff7a');
           }
           workCtx.fillStyle = fill || gradient || '#00ff7a';
-          for (let i = 0; i < barCount; i++) {
-            const v = data[i * step] / 255;
-            const h = Math.max(1, Math.floor(v * barCanvasH));
-            const xPos = i * barW;
-            const yPos = layer.invert ? 0 : (barCanvasH - h);
-            workCtx.fillRect(xPos, yPos, Math.max(1, barW * 0.8), h);
+          if (mode === 'line') {
+            workCtx.beginPath();
+            for (let i = 0; i < barCount; i++) {
+              const v = sampleValue(i);
+              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const xPos = i * barW + barW / 2;
+              const yPos = layer.invert ? h : (barCanvasH - h);
+              if (i === 0) workCtx.moveTo(xPos, yPos);
+              else workCtx.lineTo(xPos, yPos);
+            }
+            workCtx.strokeStyle = fill || gradient || '#00ff7a';
+            workCtx.lineWidth = Math.max(1, barW * 0.4);
+            workCtx.stroke();
+          } else if (mode === 'dots') {
+            const radius = Math.max(1, (barW * barWidthPct) / 2);
+            for (let i = 0; i < barCount; i++) {
+              const v = sampleValue(i);
+              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const xPos = i * barW + barW / 2;
+              const yPos = layer.invert ? h : (barCanvasH - h);
+              workCtx.beginPath();
+              workCtx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+              workCtx.fill();
+            }
+          } else {
+            const widthScale = mode === 'solid' ? 1 : barWidthPct;
+            for (let i = 0; i < barCount; i++) {
+              const v = sampleValue(i);
+              const h = Math.max(1, Math.floor(scaleAmp(v) * barCanvasH));
+              const xPos = i * barW;
+              const barWidth = Math.max(1, barW * widthScale);
+              const yPos = layer.invert ? 0 : (barCanvasH - h);
+              workCtx.fillRect(xPos, yPos, barWidth, h);
+            }
           }
           const finalCanvas = workCanvas;
           const glowAmount = layer.glowAmount ?? 0;
@@ -1750,31 +1973,98 @@ const App = () => {
           ctx.rotate(rotateRad);
           if (reverse) ctx.scale(-1, 1);
           ctx.globalAlpha = opacity;
-          if (shadowDistance > 0) {
-            ctx.save();
-            ctx.shadowOffsetX = shadowDistance;
-            ctx.shadowOffsetY = shadowDistance;
-            ctx.shadowColor = shadowColor;
-            ctx.shadowBlur = 0;
+          if (pathMode === 'circular') {
+            const drawCircular = (flipX: boolean, flipY: boolean) => {
+              ctx.save();
+              ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+              const radius = Math.min(drawW, drawH) / 2;
+              const innerRadius = radius * 0.1;
+              const angleStep = (Math.PI * 2) / barCount;
+              if (shadowDistance > 0) {
+                ctx.save();
+                ctx.shadowOffsetX = shadowDistance;
+                ctx.shadowOffsetY = shadowDistance;
+                ctx.shadowColor = shadowColor;
+                ctx.shadowBlur = 0;
+                ctx.restore();
+              }
+              if (glowAmount > 0) {
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = glowAmount;
+                ctx.globalAlpha = glowOpacity;
+              }
+              ctx.fillStyle = fill || gradient || '#00ff7a';
+              ctx.strokeStyle = fill || gradient || '#00ff7a';
+              for (let i = 0; i < barCount; i++) {
+                const v = sampleValue(i);
+                const mag = Math.max(1, scaleAmp(v) * (radius - innerRadius));
+                const startAngle = -Math.PI / 2 + i * angleStep;
+                const thickness = angleStep * (mode === 'bar' || mode === 'solid' ? barWidthPct : 0.6);
+                const angle = startAngle + thickness / 2;
+                const outer = layer.invert ? innerRadius : innerRadius + mag;
+                const inner = layer.invert ? innerRadius + mag : innerRadius;
+                if (mode === 'dots') {
+                  const dotR = Math.max(2, radius * 0.015 * barWidthPct);
+                  const rx = Math.cos(angle) * outer;
+                  const ry = Math.sin(angle) * outer;
+                  ctx.beginPath();
+                  ctx.arc(rx, ry, dotR, 0, Math.PI * 2);
+                  ctx.fill();
+                } else if (mode === 'line') {
+                  ctx.lineWidth = Math.max(1, radius * 0.01 * barWidthPct);
+                  ctx.beginPath();
+                  ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+                  ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+                  ctx.stroke();
+                } else {
+                  const start = startAngle;
+                  const end = startAngle + thickness;
+                  ctx.beginPath();
+                  ctx.arc(0, 0, outer, start, end, false);
+                  ctx.arc(0, 0, inner, end, start, true);
+                  ctx.closePath();
+                  ctx.fill();
+                }
+              }
+              ctx.restore();
+            };
+            drawCircular(false, false);
+            if (layer.mirrorX) drawCircular(true, false);
+            if (layer.mirrorY) drawCircular(false, true);
+            if (layer.mirrorX && layer.mirrorY) drawCircular(true, true);
+          } else {
+            if (shadowDistance > 0) {
+              ctx.save();
+              ctx.shadowOffsetX = shadowDistance;
+              ctx.shadowOffsetY = shadowDistance;
+              ctx.shadowColor = shadowColor;
+              ctx.shadowBlur = 0;
+              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+              ctx.restore();
+            }
+            if (outlineWidth > 0) {
+              ctx.save();
+              ctx.shadowColor = outlineColor;
+              ctx.shadowBlur = outlineWidth;
+              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+              ctx.restore();
+            }
+            if (glowAmount > 0) {
+              ctx.save();
+              ctx.shadowColor = glowColor;
+              ctx.shadowBlur = glowAmount;
+              ctx.globalAlpha = glowOpacity;
+              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+              ctx.restore();
+            }
             ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-            ctx.restore();
+            if (layer.mirrorX || layer.mirrorY) {
+              ctx.save();
+              ctx.scale(layer.mirrorX ? -1 : 1, layer.mirrorY ? -1 : 1);
+              ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+              ctx.restore();
+            }
           }
-          if (outlineWidth > 0) {
-            ctx.save();
-            ctx.shadowColor = outlineColor;
-            ctx.shadowBlur = outlineWidth;
-            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-            ctx.restore();
-          }
-          if (glowAmount > 0) {
-            ctx.save();
-            ctx.shadowColor = glowColor;
-            ctx.shadowBlur = glowAmount;
-            ctx.globalAlpha = glowOpacity;
-            ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
-            ctx.restore();
-          }
-          ctx.drawImage(finalCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
           ctx.restore();
         } else {
           const am = audioMotionRef.current;
@@ -1808,6 +2098,112 @@ const App = () => {
             ctx.restore();
           }
         }
+      } else if (layer.type === 'image') {
+        const imgPath = (layer as any).imagePath;
+        if (!imgPath) continue;
+        const img = imagePoolRef.current.get(imgPath);
+        if (!img || !img.complete) continue;
+        const outlineWidth = layer.outlineWidth ?? 0;
+        const outlineColor = layer.outlineColor ?? '#000000';
+        const glowAmount = layer.glowAmount ?? 0;
+        const glowColor = layer.glowColor ?? '#000000';
+        const shadowDistance = layer.shadowDistance ?? 0;
+        const shadowColor = layer.shadowColor ?? '#000000';
+        ctx.save();
+        ctx.translate(x + drawW / 2, y + drawH / 2);
+        if (rotateRad) ctx.rotate(rotateRad);
+        if (reverse) ctx.scale(-1, 1);
+        ctx.globalAlpha = opacity;
+        if (layer.invert) ctx.filter = 'invert(1)';
+        if (shadowDistance > 0) {
+          ctx.shadowColor = shadowColor;
+          ctx.shadowBlur = Math.max(0, shadowDistance);
+          ctx.shadowOffsetX = shadowDistance;
+          ctx.shadowOffsetY = shadowDistance;
+        }
+        if (glowAmount > 0) {
+          ctx.shadowColor = glowColor;
+          ctx.shadowBlur = glowAmount * 2;
+        }
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        if (outlineWidth > 0) {
+          ctx.shadowColor = 'transparent';
+          ctx.filter = 'none';
+          ctx.lineWidth = outlineWidth;
+          ctx.strokeStyle = outlineColor;
+          ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
+        }
+        ctx.restore();
+      } else if (layer.type === 'particles') {
+        const count = Math.max(10, Math.round(layer.particleCount ?? 200));
+        const direction = (layer.direction ?? 0) * (Math.PI / 180);
+        const baseSpeed = Math.max(1, layer.speed ?? 60);
+        const sizeMin = Math.max(1, layer.sizeMin ?? 2);
+        const sizeMax = Math.max(sizeMin, layer.sizeMax ?? 6);
+        const opacityMin = Math.max(0, Math.min(1, layer.opacityMin ?? 0.3));
+        const opacityMax = Math.max(opacityMin, Math.min(1, layer.opacityMax ?? 0.9));
+        const speedScale = layer.audioResponsive ? (1 + audioAmplitude) : 1;
+        const isActive = !!audioEl && !audioEl.paused;
+        const state = particleStateRef.current.get(layer.id) ?? {
+          particles: [],
+          lastTime: nowMs,
+          width: drawW,
+          height: drawH,
+        };
+        if (state.width !== drawW || state.height !== drawH) {
+          const prevW = state.width || drawW;
+          const prevH = state.height || drawH;
+          for (const p of state.particles) {
+            p.x = (p.x / prevW) * drawW;
+            p.y = (p.y / prevH) * drawH;
+          }
+          state.width = drawW;
+          state.height = drawH;
+        }
+        if (state.particles.length !== count) {
+          if (state.particles.length > count) {
+            state.particles.length = count;
+          } else {
+            const missing = count - state.particles.length;
+            for (let i = 0; i < missing; i++) {
+              state.particles.push({
+                x: Math.random() * drawW,
+                y: Math.random() * drawH,
+                size: sizeMin + Math.random() * (sizeMax - sizeMin),
+                opacity: opacityMin + Math.random() * (opacityMax - opacityMin),
+                angleOffset: (Math.random() - 0.5) * (Math.PI / 6),
+                speedScale: 0.7 + Math.random() * 0.6,
+              });
+            }
+          }
+        }
+        const dt = isActive ? Math.min(0.05, (nowMs - state.lastTime) / 1000) : 0;
+        state.lastTime = nowMs;
+        particleStateRef.current.set(layer.id, state);
+        ctx.save();
+        ctx.translate(x + drawW / 2, y + drawH / 2);
+        ctx.rotate(rotateRad);
+        if (reverse) ctx.scale(-1, 1);
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = layer.color ?? '#7ea5ff';
+        const originX = -drawW / 2;
+        const originY = -drawH / 2;
+        for (const p of state.particles) {
+          if (dt > 0) {
+            const speed = baseSpeed * p.speedScale * speedScale;
+            p.x += Math.cos(direction + p.angleOffset) * speed * dt;
+            p.y += Math.sin(direction + p.angleOffset) * speed * dt;
+            if (p.x < 0) p.x += drawW;
+            if (p.x > drawW) p.x -= drawW;
+            if (p.y < 0) p.y += drawH;
+            if (p.y > drawH) p.y -= drawH;
+          }
+          ctx.globalAlpha = opacity * p.opacity;
+          ctx.beginPath();
+          ctx.arc(originX + p.x, originY + p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       } else if (layer.type === 'text') {
         ctx.save();
         ctx.translate(x + drawW / 2, y + drawH / 2);
@@ -1838,6 +2234,8 @@ const App = () => {
         ctx.restore();
       }
     }
+
+    ctx.restore();
 
     previewBusyRef.current = false;
     if (previewQueuedRef.current) {
@@ -2040,6 +2438,8 @@ const App = () => {
             <h2 style={{ margin: 0 }}>LAYERS</h2>
             <PillIconButton icon="ui/icon-layer-visualizer-add.png" label="Visualizer" onClick={() => startNewLayer('spectrograph')} />
             <PillIconButton icon="ui/icon-layer-text-add.png" label="Text" onClick={() => startNewLayer('text')} />
+            <PillIconButton icon="ui/icon-folder.png" label="Image" onClick={() => startNewLayer('image')} />
+            <PillIconButton icon="ui/icon-sliders.png" label="Particles" onClick={() => startNewLayer('particles')} />
             <div style={{ marginLeft: 'auto' }}>
               <button className="collapse-btn" type="button" onClick={() => toggleSection('layers')} aria-label="Toggle layers">
                 <img src={assetHref(themedIcon(collapsed.layers ? 'ui/icon-expand.png' : 'ui/icon-collapse.png'))} alt={collapsed.layers ? 'Expand' : 'Collapse'} />
@@ -2068,11 +2468,23 @@ const App = () => {
                     >
                       <div style={{ width: 16, height: 16, borderRadius: 4, background: layer.color }} />
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600 }}>{layer.type === 'text' ? 'Text Layer' : 'Spectrograph Layer'}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          {layer.type === 'text'
+                            ? 'Text Layer'
+                            : layer.type === 'image'
+                              ? 'Image Layer'
+                              : layer.type === 'particles'
+                                ? 'Particles Layer'
+                                : 'Spectrograph Layer'}
+                        </div>
                         <div className="muted" style={{ fontSize: 12 }}>
                           {layer.type === 'text'
                             ? `Text: ${(layer as any).text ?? ''} @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%), font ${(layer as any).font ?? ''} ${(layer as any).fontSize ?? ''}`
-                            : `Mode: ${(layer as any).mode ?? 'bar'} @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%)`}
+                            : layer.type === 'image'
+                              ? `Image: ${(layer as any).imagePath ? ((layer as any).imagePath as string).split(/[\\/]/).pop() : 'None'} @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%)`
+                              : layer.type === 'particles'
+                                ? `Particles @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%)`
+                                : `Mode: ${(layer as any).mode ?? 'bar'} @ (${Math.round(layer.x * 100)}%, ${Math.round(layer.y * 100)}%)`}
                         </div>
                       </div>
                       <button className="pill-btn" type="button" onClick={(e) => { e.stopPropagation(); openEditLayer(layer); }}>Edit</button>
@@ -2096,14 +2508,36 @@ const App = () => {
                             ...prev,
                             type: nextType,
                             mode: nextType === 'spectrograph' ? (prev.mode as any) ?? 'bar' : undefined,
+                            pathMode: nextType === 'spectrograph' ? (prev.pathMode as any) ?? 'straight' : undefined,
+                            barCount: nextType === 'spectrograph' ? (prev.barCount ?? 96) : undefined,
+                            barWidthPct: nextType === 'spectrograph' ? (prev.barWidthPct ?? 0.8) : undefined,
+                            dotCount: nextType === 'spectrograph' ? (prev.dotCount ?? 96) : undefined,
+                            solidPointCount: nextType === 'spectrograph' ? (prev.solidPointCount ?? 96) : undefined,
+                            freqScale: nextType === 'spectrograph' ? (prev.freqScale ?? 'log') : undefined,
+                            ampScale: nextType === 'spectrograph' ? (prev.ampScale ?? 'log') : undefined,
+                            averaging: nextType === 'spectrograph' ? (prev.averaging ?? 2) : undefined,
+                            mirrorX: nextType === 'spectrograph' ? (prev.mirrorX ?? false) : undefined,
+                            mirrorY: nextType === 'spectrograph' ? (prev.mirrorY ?? false) : undefined,
                             text: nextType === 'text' ? (prev.text ?? 'Text') : undefined,
                             font: nextType === 'text' ? (prev.font ?? 'Segoe UI') : undefined,
                             fontSize: nextType === 'text' ? (prev.fontSize ?? 12) : undefined,
+                            imagePath: nextType === 'image' ? (prev.imagePath ?? '') : undefined,
+                            motionAffected: nextType === 'image' ? (prev.motionAffected ?? true) : undefined,
+                            direction: nextType === 'particles' ? (prev.direction ?? 0) : undefined,
+                            speed: nextType === 'particles' ? (prev.speed ?? 60) : undefined,
+                            sizeMin: nextType === 'particles' ? (prev.sizeMin ?? 2) : undefined,
+                            sizeMax: nextType === 'particles' ? (prev.sizeMax ?? 6) : undefined,
+                            opacityMin: nextType === 'particles' ? (prev.opacityMin ?? 0.3) : undefined,
+                            opacityMax: nextType === 'particles' ? (prev.opacityMax ?? 0.9) : undefined,
+                            audioResponsive: nextType === 'particles' ? (prev.audioResponsive ?? true) : undefined,
+                            particleCount: nextType === 'particles' ? (prev.particleCount ?? 200) : undefined,
                           }));
                         }}
                       >
                         <option value="spectrograph">Standard Spectrograph</option>
                         <option value="text">Text</option>
+                        <option value="image">Image</option>
+                        <option value="particles">Particles</option>
                       </select>
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2210,11 +2644,81 @@ const App = () => {
                         {Math.round((layerDraft.opacity ?? 1) * 100)}%
                       </span>
                     </label>
-                {layerDraft.type === 'spectrograph' && (
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      Mode
-                      <select
-                        className="pill-select"
+                    {layerDraft.type === 'spectrograph' && (
+                      <>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Path
+                          <select
+                            className="pill-select"
+                            value={layerDraft.pathMode ?? 'straight'}
+                            onChange={(e) => updateLayerDraftField({ pathMode: e.target.value as 'straight' | 'circular' })}
+                          >
+                            <option value="straight">Straight</option>
+                            <option value="circular">Circular</option>
+                          </select>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Frequency Scale
+                          <select
+                            className="pill-select"
+                            value={layerDraft.freqScale ?? 'log'}
+                            onChange={(e) => updateLayerDraftField({ freqScale: e.target.value as 'lin' | 'log' | 'rlog' })}
+                          >
+                            <option value="lin">Linear</option>
+                            <option value="log">Log</option>
+                            <option value="rlog">Reverse Log</option>
+                          </select>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Amplitude Scale
+                          <select
+                            className="pill-select"
+                            value={layerDraft.ampScale ?? 'log'}
+                            onChange={(e) => updateLayerDraftField({ ampScale: e.target.value as 'lin' | 'sqrt' | 'cbrt' | 'log' })}
+                          >
+                            <option value="lin">Linear</option>
+                            <option value="sqrt">Sqrt</option>
+                            <option value="cbrt">Cbrt</option>
+                            <option value="log">Log</option>
+                          </select>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Averaging
+                          <input type="range" min={1} max={10} value={layerDraft.averaging ?? 2} onChange={(e) => updateLayerDraftField({ averaging: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Averaging', layerDraft.averaging ?? 2, 1, 10, (v) => updateLayerDraftField({ averaging: v }))}
+                          >
+                            {layerDraft.averaging ?? 2}
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Mirror X
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.mirrorX}
+                            onClick={() => updateLayerDraftField({ mirrorX: !layerDraft.mirrorX })}
+                          >
+                            <span>{layerDraft.mirrorX ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Mirror Y
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.mirrorY}
+                            onClick={() => updateLayerDraftField({ mirrorY: !layerDraft.mirrorY })}
+                          >
+                            <span>{layerDraft.mirrorY ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Mode
+                          <select
+                            className="pill-select"
                         value={layerDraft.mode ?? 'bar'}
                         onChange={(e) => updateLayerDraftField({ mode: e.target.value as 'bar' | 'line' | 'solid' | 'dots' })}
                       >
@@ -2223,7 +2727,60 @@ const App = () => {
                         <option value="solid">Solid</option>
                         <option value="dots">Dots</option>
                       </select>
-                  </label>
+                    </label>
+                    {(layerDraft.mode ?? 'bar') === 'bar' && (
+                      <>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Bar Count
+                          <input type="range" min={8} max={256} value={layerDraft.barCount ?? 96} onChange={(e) => updateLayerDraftField({ barCount: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Bar Count', layerDraft.barCount ?? 96, 8, 256, (v) => updateLayerDraftField({ barCount: v }))}
+                          >
+                            {layerDraft.barCount ?? 96}
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Bar Width (%)
+                          <input type="range" min={10} max={100} value={Math.round((layerDraft.barWidthPct ?? 0.8) * 100)} onChange={(e) => updateLayerDraftField({ barWidthPct: Number(e.target.value) / 100 })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Bar Width (%)', Math.round((layerDraft.barWidthPct ?? 0.8) * 100), 10, 100, (v) => updateLayerDraftField({ barWidthPct: v / 100 }))}
+                          >
+                            {Math.round((layerDraft.barWidthPct ?? 0.8) * 100)}%
+                          </span>
+                        </label>
+                      </>
+                    )}
+                    {(layerDraft.mode ?? 'bar') === 'dots' && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Dot Count
+                        <input type="range" min={8} max={256} value={layerDraft.dotCount ?? 96} onChange={(e) => updateLayerDraftField({ dotCount: Number(e.target.value) })} />
+                        <span
+                          className="muted"
+                          style={{ fontSize: 12 }}
+                          onDoubleClick={() => promptNumeric('Dot Count', layerDraft.dotCount ?? 96, 8, 256, (v) => updateLayerDraftField({ dotCount: v }))}
+                        >
+                          {layerDraft.dotCount ?? 96}
+                        </span>
+                      </label>
+                    )}
+                    {(layerDraft.mode ?? 'bar') === 'solid' && (
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        Solid Points
+                        <input type="range" min={8} max={256} value={layerDraft.solidPointCount ?? 96} onChange={(e) => updateLayerDraftField({ solidPointCount: Number(e.target.value) })} />
+                        <span
+                          className="muted"
+                          style={{ fontSize: 12 }}
+                          onDoubleClick={() => promptNumeric('Solid Points', layerDraft.solidPointCount ?? 96, 8, 256, (v) => updateLayerDraftField({ solidPointCount: v }))}
+                        >
+                          {layerDraft.solidPointCount ?? 96}
+                        </span>
+                      </label>
+                    )}
+                  </>
                 )}
                 {layerDraft.type === 'spectrograph' && (
                   <>
@@ -2294,7 +2851,165 @@ const App = () => {
                       </span>
                     </label>
                   </>
-                )}
+                    )}
+                    {layerDraft.type === 'image' && (
+                      <>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 240 }}>
+                          Image File
+                          <input type="text" value={layerDraft.imagePath ?? ''} readOnly />
+                          <button className="pill-btn" type="button" onClick={handlePickImageForLayer}>
+                            <span>Browse</span>
+                          </button>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Width (px)
+                          <input type="range" min={20} max={4000} value={Math.round(layerDraft.width ?? 320)} onChange={(e) => updateLayerDraftField({ width: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Width (px)', Math.round(layerDraft.width ?? 320), 20, 4000, (v) => updateLayerDraftField({ width: v }))}
+                          >
+                            {Math.round(layerDraft.width ?? 320)} px
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Height (px)
+                          <input type="range" min={20} max={3000} value={Math.round(layerDraft.height ?? 320)} onChange={(e) => updateLayerDraftField({ height: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Height (px)', Math.round(layerDraft.height ?? 320), 20, 3000, (v) => updateLayerDraftField({ height: v }))}
+                          >
+                            {Math.round(layerDraft.height ?? 320)} px
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Invert
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.invert}
+                            onClick={() => updateLayerDraftField({ invert: !layerDraft.invert })}
+                          >
+                            <span>{layerDraft.invert ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Reverse
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.reverse}
+                            onClick={() => updateLayerDraftField({ reverse: !layerDraft.reverse })}
+                          >
+                            <span>{layerDraft.reverse ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Motion Affected
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.motionAffected}
+                            onClick={() => updateLayerDraftField({ motionAffected: !layerDraft.motionAffected })}
+                          >
+                            <span>{layerDraft.motionAffected ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                      </>
+                    )}
+                    {layerDraft.type === 'particles' && (
+                      <>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Direction (deg)
+                          <input type="range" min={0} max={360} value={Math.round(layerDraft.direction ?? 0)} onChange={(e) => updateLayerDraftField({ direction: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Direction (deg)', Math.round(layerDraft.direction ?? 0), 0, 360, (v) => updateLayerDraftField({ direction: v }))}
+                          >
+                            {Math.round(layerDraft.direction ?? 0)}deg
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Speed
+                          <input type="range" min={0} max={300} value={Math.round(layerDraft.speed ?? 60)} onChange={(e) => updateLayerDraftField({ speed: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Speed', Math.round(layerDraft.speed ?? 60), 0, 300, (v) => updateLayerDraftField({ speed: v }))}
+                          >
+                            {Math.round(layerDraft.speed ?? 60)}
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Size Min (px)
+                          <input type="range" min={1} max={50} value={Math.round(layerDraft.sizeMin ?? 2)} onChange={(e) => updateLayerDraftField({ sizeMin: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Size Min (px)', Math.round(layerDraft.sizeMin ?? 2), 1, 50, (v) => updateLayerDraftField({ sizeMin: v }))}
+                          >
+                            {Math.round(layerDraft.sizeMin ?? 2)} px
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Size Max (px)
+                          <input type="range" min={1} max={80} value={Math.round(layerDraft.sizeMax ?? 6)} onChange={(e) => updateLayerDraftField({ sizeMax: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Size Max (px)', Math.round(layerDraft.sizeMax ?? 6), 1, 80, (v) => updateLayerDraftField({ sizeMax: v }))}
+                          >
+                            {Math.round(layerDraft.sizeMax ?? 6)} px
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Opacity Min
+                          <input type="range" min={0} max={100} value={Math.round((layerDraft.opacityMin ?? 0.3) * 100)} onChange={(e) => updateLayerDraftField({ opacityMin: Number(e.target.value) / 100 })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Opacity Min (%)', Math.round((layerDraft.opacityMin ?? 0.3) * 100), 0, 100, (v) => updateLayerDraftField({ opacityMin: v / 100 }))}
+                          >
+                            {Math.round((layerDraft.opacityMin ?? 0.3) * 100)}%
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Opacity Max
+                          <input type="range" min={0} max={100} value={Math.round((layerDraft.opacityMax ?? 0.9) * 100)} onChange={(e) => updateLayerDraftField({ opacityMax: Number(e.target.value) / 100 })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Opacity Max (%)', Math.round((layerDraft.opacityMax ?? 0.9) * 100), 0, 100, (v) => updateLayerDraftField({ opacityMax: v / 100 }))}
+                          >
+                            {Math.round((layerDraft.opacityMax ?? 0.9) * 100)}%
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Particle Count
+                          <input type="range" min={10} max={1000} value={Math.round(layerDraft.particleCount ?? 200)} onChange={(e) => updateLayerDraftField({ particleCount: Number(e.target.value) })} />
+                          <span
+                            className="muted"
+                            style={{ fontSize: 12 }}
+                            onDoubleClick={() => promptNumeric('Particle Count', Math.round(layerDraft.particleCount ?? 200), 10, 1000, (v) => updateLayerDraftField({ particleCount: v }))}
+                          >
+                            {Math.round(layerDraft.particleCount ?? 200)}
+                          </span>
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          Audio Responsive
+                          <button
+                            className="pill-btn"
+                            type="button"
+                            aria-pressed={!!layerDraft.audioResponsive}
+                            onClick={() => updateLayerDraftField({ audioResponsive: !layerDraft.audioResponsive })}
+                          >
+                            <span>{layerDraft.audioResponsive ? 'On' : 'Off'}</span>
+                          </button>
+                        </label>
+                      </>
+                    )}
                     {layerDraft.type === 'text' && (
                       <>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2303,13 +3018,22 @@ const App = () => {
                         </label>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           Font
-                          <input
-                            type="text"
-                            list="layer-font-options"
+                          <select
+                            className="pill-btn"
                             value={layerDraft.font ?? 'Segoe UI'}
                             onChange={(e) => updateLayerDraftField({ font: e.target.value })}
-                            placeholder="Select or type a font"
-                          />
+                            style={{ height: 34, padding: '0 12px' }}
+                          >
+                            {(() => {
+                              const current = layerDraft.font ?? 'Segoe UI';
+                              const options = FONT_FACE_OPTIONS.includes(current)
+                                ? FONT_FACE_OPTIONS
+                                : [current, ...FONT_FACE_OPTIONS];
+                              return options.map((name) => (
+                                <option value={name} key={name}>{name}</option>
+                              ));
+                            })()}
+                          </select>
                         </label>
                         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           Font Size
@@ -2318,9 +3042,6 @@ const App = () => {
                         </label>
                       </>
                     )}
-                    <datalist id="layer-font-options">
-                      {FONT_FACE_OPTIONS.map((name) => (<option value={name} key={name} />))}
-                    </datalist>
                   </div>
                   <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button className="pill-btn" type="button" onClick={() => { setLayerDialogOpen(false); }}>Cancel</button>
@@ -2372,8 +3093,22 @@ const App = () => {
                           borderBottom: '1px solid var(--border)',
                         }}
                       >
-                        <div style={{ fontWeight: 600 }}>{item.name}</div>
-                        <div className="muted" style={{ fontSize: 12 }}>{item.path}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <button
+                            className="pill-btn pill-btn--compact"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddVideoFromLibrary(item);
+                            }}
+                          >
+                            Add
+                          </button>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600 }}>{item.name}</div>
+                            <div className="muted" style={{ fontSize: 12 }}>{item.path}</div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

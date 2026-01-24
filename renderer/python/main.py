@@ -354,6 +354,17 @@ def resolve_font_file(font: str) -> Optional[str]:
     return None
 
 
+def escape_filter_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    normalized = normalized.replace(":", r"\:")
+    normalized = normalized.replace("'", r"\'")
+    return normalized
+
+
+def escape_geq_expr(expr: str) -> str:
+    return expr.replace("\\", "\\\\").replace(":", "\\:").replace(",", "\\,")
+
+
 def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: Optional[Tuple[int, int]] = None) -> Tuple[Optional[str], str]:
     """Return (filter_complex, video_label)"""
     if not layers and not canvas:
@@ -381,6 +392,7 @@ def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: O
             if not has_audio:
                 continue
             mode = layer.get("mode") or "bar"
+            path_mode = layer.get("pathMode") or "straight"
             x = float(layer.get("x", 0) or 0)
             y = float(layer.get("y", 0) or 0)
             spec_tag = f"[spec{idx}]"
@@ -388,16 +400,38 @@ def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: O
             h = int(layer.get("height") or 200)
             opacity = float(layer.get("opacity") or 1.0)
             invert = bool(layer.get("invert"))
+            base_w = w
+            try:
+                if mode == "dots":
+                    base_w = int(layer.get("dotCount") or w)
+                elif mode == "solid":
+                    base_w = int(layer.get("solidPointCount") or w)
+                else:
+                    base_w = int(layer.get("barCount") or w)
+            except Exception:
+                base_w = w
+            if base_w <= 0:
+                base_w = w
             color_value = layer.get("color") or ""
             tint = parse_hex_color(color_value) if color_value else None
             if mode == "line":
-                spec_chain = f"[as{spec_idx}]showfreqs=mode=line:ascale=log:win_size=2048:size={w}x{h}"
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=line:ascale=log:win_size=2048:size={base_w}x{h}"
             elif mode == "dots":
-                spec_chain = f"[as{spec_idx}]showfreqs=mode=dot:ascale=log:win_size=2048:size={w}x{h}"
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=dot:ascale=log:win_size=2048:size={base_w}x{h}"
             elif mode == "solid":
-                spec_chain = f"[as{spec_idx}]showspectrum=s={w}x{h}:mode=combined:color=intensity:scale=log:win_func=hann"
+                spec_chain = f"[as{spec_idx}]showspectrum=s={base_w}x{h}:mode=combined:color=intensity:scale=log:win_func=hann"
             else:
-                spec_chain = f"[as{spec_idx}]showfreqs=mode=bar:ascale=log:win_size=2048:size={w}x{h}"
+                spec_chain = f"[as{spec_idx}]showfreqs=mode=bar:ascale=log:win_size=2048:size={base_w}x{h}"
+            if base_w != w:
+                spec_chain += f",scale=w={w}:h={h}:flags=neighbor"
+            if mode == "bar":
+                try:
+                    bar_width = float(layer.get("barWidthPct") or 0)
+                except Exception:
+                    bar_width = 0
+                if bar_width and bar_width < 1.0:
+                    narrow_w = max(1, int(w * bar_width))
+                    spec_chain += f",scale=w={narrow_w}:h={h}:flags=neighbor,pad=w={w}:h={h}:x=(ow-iw)/2:y=0:color=black@0"
             if tint:
                 r, g, b = tint
                 spec_chain += f",format=gray,format=rgb24,lutrgb=r='val*{r}/255':g='val*{g}/255':b='val*{b}/255'"
@@ -405,12 +439,73 @@ def build_layer_filters(layers: List[Dict[str, Any]], has_audio: bool, canvas: O
                 spec_chain += ",vflip"
             if opacity < 1.0:
                 spec_chain += f",format=rgba,colorchannelmixer=aa={opacity}"
+            if path_mode == "circular":
+                rad = "hypot(X-W/2,Y-H/2)"
+                ang = "(atan2(Y-H/2,X-W/2)+PI)/(2*PI)*W"
+                ry = f"{rad}/(min(W,H)/2)*H"
+                expr = f"if(lte({rad},min(W,H)/2),p({ang},{ry}),0)"
+                expr = escape_geq_expr(expr)
+                spec_chain += f",geq=r='{expr}':g='{expr}':b='{expr}'"
             filter_parts.append(f"{spec_chain}{spec_tag}")
             filter_parts.append(
                 f"{current_v}{spec_tag}overlay=x=W*{x}:y=H*{y}:format=auto[v{lid}]"
             )
             current_v = f"[v{lid}]"
             spec_idx += 1
+        elif layer.get("type") == "image":
+            path = layer.get("imagePath")
+            if not path:
+                continue
+            x = float(layer.get("x", 0) or 0)
+            y = float(layer.get("y", 0) or 0)
+            width = int(layer.get("width") or 100)
+            height = int(layer.get("height") or 100)
+            opacity = float(layer.get("opacity") or 1.0)
+            rotate = float(layer.get("rotate") or 0)
+            reverse = bool(layer.get("reverse"))
+            invert = bool(layer.get("invert"))
+            outline_w = int(layer.get("outlineWidth") or 0)
+            outline_color = hex_to_rgb(layer.get("outlineColor") or "#000000")
+            glow_amount = int(layer.get("glowAmount") or 0)
+            glow_opacity = float(layer.get("glowOpacity") or 0.4)
+            glow_color = hex_to_rgb(layer.get("glowColor") or "#000000")
+            shadow_distance = int(layer.get("shadowDistance") or 0)
+            shadow_color = hex_to_rgb(layer.get("shadowColor") or "#000000")
+            step = 0
+            img_tag = f"[img{idx}]"
+            img_path = escape_filter_path(path)
+            img_chain = f"movie='{img_path}':loop=0,scale=w={width}:h={height}:flags=lanczos,format=rgba"
+            if rotate:
+                radians = rotate * 3.14159265 / 180.0
+                img_chain += f",rotate={radians}:fillcolor=black@0"
+            if reverse:
+                img_chain += ",hflip"
+            if invert:
+                img_chain += ",negate"
+            if opacity < 1.0:
+                img_chain += f",colorchannelmixer=aa={opacity}"
+            filter_parts.append(f"{img_chain}{img_tag}")
+
+            def overlay_with(tag: str, xoff: float = 0.0, yoff: float = 0.0) -> None:
+                nonlocal current_v, step
+                step += 1
+                next_v = f"[v{idx}_{step}]"
+                filter_parts.append(f"{current_v}{tag}overlay=x=W*{x}+{xoff}:y=H*{y}+{yoff}:format=auto:repeatlast=1{next_v}")
+                current_v = next_v
+
+            if shadow_distance > 0:
+                sh_tag = f"[imgsh{idx}]"
+                filter_parts.append(f"{img_tag}boxblur=lr={max(1, shadow_distance//2)}:lp=1,colorchannelmixer=aa=0.6{sh_tag}")
+                overlay_with(sh_tag, shadow_distance, shadow_distance)
+            if glow_amount > 0:
+                glow_tag = f"[imggl{idx}]"
+                filter_parts.append(f"{img_tag}boxblur=lr={max(1, glow_amount//2)}:lp=1,colorchannelmixer=aa={glow_opacity}{glow_tag}")
+                overlay_with(glow_tag, 0, 0)
+            if outline_w > 0:
+                ol_tag = f"[imgol{idx}]"
+                filter_parts.append(f"{img_tag}pad=w=iw+{outline_w*2}:h=ih+{outline_w*2}:x={outline_w}:y={outline_w}:color={outline_color}@1.0{ol_tag}")
+                overlay_with(ol_tag, -outline_w, -outline_w)
+            overlay_with(img_tag, 0, 0)
         elif layer.get("type") == "text":
             text = escape_text(layer.get("text") or "Text")
             opacity = float(layer.get("opacity") or 1.0)

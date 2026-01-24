@@ -19,6 +19,7 @@ export interface ElectronBridge {
   exportSession: (request: ExportSessionRequest) => Promise<void>;
   openAudioFile: () => Promise<string | undefined>;
   openVideoFiles: () => Promise<string[]>;
+  openImageFile: () => Promise<string | undefined>;
   readFileBuffer: (filePath: string) => Promise<Uint8Array>;
   fileExists: (filePath: string) => Promise<boolean>;
   chooseProjectSavePath: (defaultPath?: string) => Promise<string | undefined>;
@@ -49,6 +50,7 @@ const bridge: ElectronBridge = {
   exportSession: (request) => ipcRenderer.invoke('session:export', request),
   openAudioFile: () => ipcRenderer.invoke('audio:open'),
   openVideoFiles: () => ipcRenderer.invoke('videos:open'),
+  openImageFile: () => ipcRenderer.invoke('image:open'),
   readFileBuffer: async (filePath: string) => {
     const buf: Buffer = await ipcRenderer.invoke('file:readBuffer', filePath);
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);

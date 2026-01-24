@@ -1,5 +1,5 @@
 Param(
-  [string]$Name = "muvidgen-renderer",
+  [string]$Name = "muvid-renderer",
   [switch]$OneFile = $true
 )
 
