@@ -129,6 +129,9 @@ const mockBridge: ElectronAPI = {
   async fileExists(_filePath: string) {
     return true;
   },
+  async machineFingerprint() {
+    return 'mock-machine-fingerprint';
+  },
   async chooseProjectSavePath() {
     return undefined;
   },
@@ -259,6 +262,14 @@ export const fileExists = async (filePath: string): Promise<boolean> => {
     return await getBridge().fileExists(filePath);
   } catch {
     return false;
+  }
+};
+
+export const getMachineFingerprint = async (): Promise<string> => {
+  try {
+    return await getBridge().machineFingerprint();
+  } catch {
+    return '';
   }
 };
 

@@ -22,6 +22,7 @@ export interface ElectronBridge {
   openImageFile: () => Promise<string | undefined>;
   readFileBuffer: (filePath: string) => Promise<Uint8Array>;
   fileExists: (filePath: string) => Promise<boolean>;
+  machineFingerprint: () => Promise<string>;
   chooseProjectSavePath: (defaultPath?: string) => Promise<string | undefined>;
   startRender: (projectJsonPath: string) => Promise<void>;
   cancelRender: () => Promise<void>;
@@ -56,6 +57,7 @@ const bridge: ElectronBridge = {
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
   },
   fileExists: (filePath: string) => ipcRenderer.invoke('file:exists', filePath),
+  machineFingerprint: () => ipcRenderer.invoke('machine:fingerprint'),
   chooseProjectSavePath: (defaultPath?: string) => ipcRenderer.invoke('project:saveAs', defaultPath),
   startRender: (projectJsonPath: string) => ipcRenderer.invoke('render:start', projectJsonPath),
   cancelRender: () => ipcRenderer.invoke('render:cancel'),

@@ -6,6 +6,8 @@ import type { ExportSessionRequest } from './preload';
 import { isProjectSchema } from '../common/project';
 import type { MediaLibraryItem } from '../common/project';
 import { spawn } from 'node:child_process';
+import os from 'os';
+import crypto from 'crypto';
 
 const SESSION_FILENAME = 'session.json';
 const SETTINGS_FILENAME = 'settings.json';
@@ -201,6 +203,23 @@ ipcMain.handle('file:exists', async (_event, filePath: string): Promise<boolean>
     return true;
   } catch {
     return false;
+  }
+});
+
+const buildMachineFingerprint = (): string => {
+  const hostname = os.hostname();
+  const platform = os.platform();
+  const arch = os.arch();
+  const cpus = os.cpus().map((c) => c.model).join('|');
+  const base = `${hostname}::${platform}::${arch}::${cpus}`;
+  return crypto.createHash('sha256').update(base).digest('hex');
+};
+
+ipcMain.handle('machine:fingerprint', async (): Promise<string> => {
+  try {
+    return buildMachineFingerprint();
+  } catch {
+    return '';
   }
 });
 

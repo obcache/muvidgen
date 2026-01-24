@@ -147,12 +147,7 @@ body {
   font-family: var(--font-ui);
 }
 
-h2 {
-  margin: 0;
-  letter-spacing: 3px;
-  font-family: 'Essen';
-  font-size: 22pt;
-}
+h2 { margin: 0 0 4px; letter-spacing: 0.2px; }
 
 button {
   background: var(--btn-bg);
@@ -217,16 +212,16 @@ label { color: var(--text); }
 .pill-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   background-color: var(--btn-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 4px 12px;
+  padding: 6px 12px;
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 15px;
   cursor: pointer;
-  line-height: 1.0;
+  line-height: 1.2;
 }
 .pill-btn:hover { background-color: var(--btn-bg-hover); }
 .pill-btn:active { transform: translateY(1px); }
@@ -244,13 +239,13 @@ select.pill-btn {
 }
 
 .pill-btn--icon {
-  padding: 6px 8px;
+  padding: 0px 2px;
   min-width: 40px;
   justify-content: center;
 }
 
 .pill-btn--compact {
-  padding: 4px 8px;
+  padding: 4px 2px;
   font-size: 13px;
   line-height: 1.1;
 }
@@ -284,7 +279,7 @@ select.pill-btn {
   background: var(--panel);
   border: 0px solid var(--border);
   border-radius: 10px;
-  padding: 2px 10px;
+  padding: 8px 10px;
 }
 
 .collapse-btn {
@@ -307,13 +302,13 @@ select.pill-btn {
 .section-block {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 2px;
-  margin-bottom: 2px;
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 10px;
 }
 
 .section-body {
-  margin-top: 10px;
+  margin-top: 0px;
 }
 
 .time-pill {

@@ -28,7 +28,6 @@ import {
   saveMediaLibrary as persistMediaLibrary,
   probeMediaFile,
   fileExists,
-  onMenuAction,
 } from './state/storage';
 import type { SessionState } from './types/session';
 // ProjectSchema usage comes via storage types; no direct import needed here.
@@ -39,72 +38,10 @@ import Storyboard from './components/Storyboard';
 import VolumeSlider from './components/VolumeSlider';
 import type { ProjectSchema, LayerConfig, LayerType } from 'common/project';
 import type { MediaLibraryItem } from 'common/project';
+import { base64UrlDecode } from './utils/b64';
 
 type Theme = 'dark' | 'light';
 type WebAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
-type ClipEdit = {
-  timelineStart?: number;
-  trimStart?: number;
-  trimEnd?: number;
-  duration?: number;
-  hue?: number;
-  contrast?: number;
-  brightness?: number;
-  rotate?: number;
-  flipH?: boolean;
-  flipV?: boolean;
-  invert?: boolean;
-};
-
-type LayerDraft = Partial<LayerConfig> & {
-  text?: string;
-  mode?: 'bar' | 'line' | 'solid' | 'dots';
-  font?: string;
-  fontSize?: number;
-  outlineColor?: string;
-  outlineWidth?: number;
-  glowColor?: string;
-  glowAmount?: number;
-  glowOpacity?: number;
-  shadowColor?: string;
-  shadowDistance?: number;
-  pathMode?: 'straight' | 'circular';
-  freqScale?: 'lin' | 'log' | 'rlog';
-  ampScale?: 'lin' | 'sqrt' | 'cbrt' | 'log';
-  averaging?: number;
-  mirrorX?: boolean;
-  mirrorY?: boolean;
-  barCount?: number;
-  barWidthPct?: number;
-  dotCount?: number;
-  solidPointCount?: number;
-  imagePath?: string;
-  motionAffected?: boolean;
-  direction?: number;
-  speed?: number;
-  sizeMin?: number;
-  sizeMax?: number;
-  opacityMin?: number;
-  opacityMax?: number;
-  audioResponsive?: boolean;
-  particleCount?: number;
-};
-
-type Particle = {
-  x: number;
-  y: number;
-  size: number;
-  opacity: number;
-  angleOffset: number;
-  speedScale: number;
-};
-
-type ParticleState = {
-  particles: Particle[];
-  lastTime: number;
-  width: number;
-  height: number;
-};
 
 type LocalSession = SessionState & {
   audioPath?: string;
@@ -301,10 +238,6 @@ const App = () => {
   const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ id: string; path: string; index: number; x: number; y: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ path: string; index: number; name: string } | null>(null);
-  const [clipEditor, setClipEditor] = useState<{ id: string; path: string; index: number } | null>(null);
-  const [clipEditorDraft, setClipEditorDraft] = useState<(ClipEdit & { timelineStart?: number; timelineEnd?: number }) | null>(null);
-  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-  const selectedLayer = useMemo(() => layers.find((layer) => layer.id === selectedLayerId) ?? null, [layers, selectedLayerId]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     preview: true,
     audio: false,
@@ -328,6 +261,14 @@ const App = () => {
   const [licenseError, setLicenseError] = useState<string | null>(null);
   const [validatingLicense, setValidatingLicense] = useState(false);
   const isLicensed = licenseStatus.licensed;
+  const getMaxVideoWidth = useCallback(() => {
+    let max = 0;
+    videoPoolRef.current.forEach((v) => {
+      if (v.videoWidth && v.videoWidth > max) max = v.videoWidth;
+    });
+    return max || 640;
+  }, []);
+
   const loadLibrary = useCallback(async () => {
     try {
       const items = await loadMediaLibrary();
@@ -457,31 +398,6 @@ const App = () => {
   useEffect(() => {
     void loadLibrary();
   }, [loadLibrary]);
-
-  useEffect(() => {
-    setSession((prev) => {
-      const paths = prev.videoPaths ?? [];
-      const ids = prev.videoIds ?? [];
-      if (paths.length === 0) {
-        return ids.length ? { ...prev, videoIds: [] } : prev;
-      }
-      if (ids.length === paths.length && ids.every(Boolean)) return prev;
-      const nextIds = paths.map((_, idx) => ids[idx] || makeId());
-      return { ...prev, videoIds: nextIds };
-    });
-  }, [session.videoPaths]);
-
-  const projectTitle = useMemo(() => {
-    const path = session.projectSavePath;
-    if (!path) return '';
-    const name = path.split(/[\\/]/).pop() || '';
-    return name;
-  }, [session.projectSavePath]);
-
-  useEffect(() => {
-    const base = 'muvid';
-    document.title = projectTitle ? `${base} - ${projectTitle}` : `${base} - Unsaved Project *`;
-  }, [projectTitle]);
 
   // Check missing media (audio, videos, library) when paths change
   useEffect(() => {
@@ -990,42 +906,10 @@ const App = () => {
     }
   };
 
-  const verifyLicenseKey = useCallback(async (key: string) => {
-    const trimmed = key.trim();
-    if (!trimmed) return { ok: false, reason: 'Enter a product key.' };
-    const subtle = getSubtle();
-    if (!subtle) return { ok: false, reason: 'Crypto APIs unavailable in this environment.' };
-    const parts = trimmed.split('.');
-    if (parts.length !== 2) return { ok: false, reason: 'Invalid format. Expect payload.signature' };
-    let payloadBytes: Uint8Array;
-    let sigBytes: Uint8Array;
-    try {
-      payloadBytes = base64UrlToUint8(parts[0]);
-      sigBytes = base64UrlToUint8(parts[1]);
-    } catch {
-      return { ok: false, reason: 'Invalid base64 encoding in key.' };
-    }
-    const publicKey = await importLicensePublicKey();
-    if (!publicKey) return { ok: false, reason: 'Public key not configured; set LICENSE_PUBLIC_KEY_JWK.' };
-    let verified = false;
-    try {
-      verified = await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, sigBytes, payloadBytes);
-      if (!verified && sigBytes[0] === 0x30) {
-        const rawSig = derToRawEcdsa(sigBytes, 32);
-        if (rawSig) {
-          verified = await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, rawSig, payloadBytes);
-        }
-      }
-    } catch (err) {
-      console.warn('License verification error', err);
-      return { ok: false, reason: 'Verification failed.' };
-    }
-    if (!verified) return { ok: false, reason: 'Signature check failed.' };
-    const payload = parseLicensePayload(payloadBytes);
-    if (!payload) return { ok: false, reason: 'Malformed license payload.' };
-    if (payload.expiresAt && Date.now() > payload.expiresAt) return { ok: false, reason: 'License expired.' };
-    return { ok: true, payload };
-  }, []);
+  const validateLicenseKey = (key: string) => {
+    const normalized = key.trim().toUpperCase();
+    return /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(normalized);
+  };
 
   const ensureLicensed = useCallback(() => {
     if (isLicensed) return true;
@@ -1037,53 +921,14 @@ const App = () => {
 
   const handleValidateLicense = async () => {
     const trimmed = licenseKeyInput.trim();
-    setLicenseError(null);
-    setValidatingLicense(true);
-    try {
-      const result = await verifyLicenseKey(trimmed);
-      if (!result.ok) {
-        setLicenseError(result.reason ?? 'Invalid product key.');
-        return;
-      }
-      setLicenseStatus({ licensed: true, key: trimmed });
-      setLicenseModalOpen(false);
-      setStatus('License activated');
-    } finally {
-      setValidatingLicense(false);
+    if (!validateLicenseKey(trimmed)) {
+      setLicenseError('Invalid product key format. Use XXXX-XXXX-XXXX-XXXX.');
+      return;
     }
-  };
-
-  const handleUnlicense = () => {
-    setLicenseStatus({ licensed: false, key: '' });
-    setLicenseModalOpen(false);
+    setLicenseStatus({ licensed: true, key: trimmed });
     setLicenseError(null);
-    setStatus('License cleared (testing)');
-  };
-
-  const handleNewProject = () => {
-    setSession(defaultState);
-    setAudioDuration(0);
-    setOverviewPeaks([]);
-    setTimelineZoom(1);
-    setTimelineScroll(0);
-    setVideoDurations({});
-    setLogs([]);
-    setRenderElapsedMs(0);
-    setRenderTotalMs(0);
-    setIsRendering(false);
-    setIsPlaying(false);
-    setLayerDraft({});
-    setLayerDialogOpen(false);
-    setContextMenu(null);
-    setRenameTarget(null);
-    setClipEditor(null);
-    setClipEditorDraft(null);
-    setMissingPaths(new Set());
-    setAddVideoModalOpen(false);
-    setLibrarySelectedId(null);
-    setStatus('New project');
-    setError(null);
-    void updateProjectDirty(false);
+    setLicenseModalOpen(false);
+    setStatus('License activated');
   };
 
   const toggleSection = (key: keyof typeof collapsed) => {
@@ -3377,8 +3222,8 @@ const App = () => {
             </div>
           </div>
         )}
-   <div style={{ opacity: projectLocked ? 0.55 : 1 }}>
-        <div className="right section-block">
+
+        <div className="right section-block" style={{ opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
           <div className="section-header">
             <h2 style={{ margin: 0 }}>PROJECT</h2>
                 <button className="pill-btn" type="button" onClick={handleNewProject}>
@@ -3435,11 +3280,9 @@ const App = () => {
           </div>
 
           {!collapsed.project && (
-            <div className="section-body" style={{ position: 'relative' }}>
+            <div className="section-body" style={{ position: 'relative', opacity: projectLocked ? 0.45 : 1, pointerEvents: projectLocked ? 'none' : 'auto' }}>
               {projectLocked && (
-                <button
-                  type="button"
-                  onClick={() => setLicenseModalOpen(true)}
+                <div
                   style={{
                     position: 'absolute',
                     inset: 0,
@@ -3453,14 +3296,14 @@ const App = () => {
                     fontWeight: 700,
                     border: '1px dashed var(--border)',
                     borderRadius: 8,
-                    cursor: 'pointer',
                     textAlign: 'center',
                     lineHeight: 1.4,
                     zIndex: 2,
+                    pointerEvents: 'none',
                   }}
                 >
                   Trial Edition: Click here to upgrade to the Full Version.
-                </button>
+                </div>
               )}
            
 
