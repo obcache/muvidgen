@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-type Theme = 'dark' | 'light';
+import MaterialIcon from './MaterialIcon';
 
 export type StoryboardSegment = {
   id: string;
@@ -27,7 +26,6 @@ export interface StoryboardProps {
   onDurationChange?: (id: string, duration: number) => void;
   onDoubleClick?: (segment: StoryboardSegment) => void;
   onContextMenu?: (segment: StoryboardSegment, clientX: number, clientY: number) => void;
-  theme?: Theme;
 }
 
 const fileName = (p: string) => {
@@ -70,7 +68,6 @@ const Storyboard = ({
   onDurationChange,
   onDoubleClick,
   onContextMenu,
-  theme = 'dark',
 }: StoryboardProps) => {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -79,6 +76,7 @@ const Storyboard = ({
     id: string;
     kind: 'start' | 'end';
     startX: number;
+    timelineStart: number;
     trimStart: number;
     trimEnd: number;
     sourceDuration: number;
@@ -137,6 +135,7 @@ const Storyboard = ({
       id: seg.id,
       kind,
       startX: clientX,
+      timelineStart: seg.start,
       trimStart: seg.trimStart,
       trimEnd: seg.trimEnd,
       sourceDuration: seg.sourceDuration,
@@ -158,10 +157,12 @@ const Storyboard = ({
         const maxStart = trimDrag.trimEnd - minLen;
         const nextStart = Math.max(0, Math.min(maxStart, trimDrag.trimStart + delta));
         const nextDuration = Math.max(minLen, trimDrag.duration - delta);
-        onTrimChange?.(trimDrag.id, nextStart, nextDuration);
+        const maxDuration = Math.max(minLen, totalDuration - trimDrag.timelineStart);
+        onTrimChange?.(trimDrag.id, nextStart, Math.min(nextDuration, maxDuration));
       } else {
         const nextDuration = Math.max(minLen, trimDrag.duration + delta);
-        onDurationChange?.(trimDrag.id, nextDuration);
+        const maxDuration = Math.max(minLen, totalDuration - trimDrag.timelineStart);
+        onDurationChange?.(trimDrag.id, Math.min(nextDuration, maxDuration));
       }
     };
     const onUp = () => {
@@ -286,11 +287,7 @@ const Storyboard = ({
                       lineHeight: 0,
                     }}
                   >
-                    <img
-                      src={theme === 'light' ? 'ui/icon-segment-remove-light.png' : 'ui/icon-segment-remove.png'}
-                      alt="Remove"
-                      style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
-                    />
+                    <MaterialIcon name="close" size={16} ariaHidden />
                   </button>
                 </>
               )}
@@ -306,7 +303,7 @@ const Storyboard = ({
           );
         })}
         {segments.length === 0 && (
-          <div style={{ color: '#777' }}>No clips. Use Add Videos to add files.</div>
+          <div style={{ color: '#777' }}>No clips. Use Add Video to add files.</div>
         )}
         {totalDuration && totalDuration > 0 && (
           <div

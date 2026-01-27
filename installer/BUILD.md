@@ -19,11 +19,11 @@ This is a quick, memory-jogger guide for a full build, preflight checks, and Inn
 
 ## 3) Build the Python renderer (if needed)
 - If not already built: build with your existing renderer tooling (PyInstaller output should end up in `renderer/python/dist`)
-- Confirm: `renderer/python/dist/muvidgen-renderer.exe`
+- Confirm: `renderer/python/dist/muvid-renderer.exe`
 
 ## 4) Package the Electron app
 - `npm run package:win`
-  - Output in `release/MuvidGen-win32-x64`
+  - Output in `release/muvid-win32-x64`
 
 ## 5) Inno Setup compile
 - Open `installer/windows/setup.iss` in Inno Setup

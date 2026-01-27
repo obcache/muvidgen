@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline signer for MuvidGen licenses.
+ * Offline signer for muvid licenses.
  *
  * Usage:
  *   node sign.js --hwid <fingerprint> --name "Customer Name" --days 365
@@ -41,7 +41,7 @@ const privKey = fs.readFileSync(keyPath, 'utf-8');
 const header = { alg: 'RS256', typ: 'JWT' };
 const now = Math.floor(Date.now() / 1000);
 const payload = {
-  iss: 'muvidgen-offline-signer',
+  iss: 'muvid-offline-signer',
   sub: name,
   hwid,
   iat: now,

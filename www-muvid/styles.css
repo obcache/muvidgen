@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #0b0d11;
   --bg-elevated: #10131a;
   --panel: #141922;
@@ -11,76 +11,9 @@
   --accent-soft: #2a58c7;
   --accent-glow: rgba(60, 124, 255, 0.35);
   --shadow: 0 16px 45px rgba(0, 0, 0, 0.45);
-  --font-ui: 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif;
-  --font-head: 'Failed', 'Segoe UI', sans-serif;
-  --font-brand: 'Explosion', 'Segoe UI', sans-serif;
+  --font-ui: 'Plus Jakarta Sans', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-head: 'Space Grotesk', 'Plus Jakarta Sans', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
-
-@font-face {
-  font-family: 'Laritza';
-  src: url('fonts/Laritza.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Explosion';
-  src: url('fonts/Explosion.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Explosion-3D';
-  src: url('fonts/Explosion-3D.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Explosion-Outlined';
-  src: url('fonts/Explosion-Outlined.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Explosion-Outlined-3D';
-  src: url('fonts/Explosion-Outlined-3D.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Failed';
-  src: url('fonts/Failed.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Failed-3D';
-  src: url('fonts/Failed-3D.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Failed-3D-Italic';
-  src: url('fonts/Failed-3D-Italic.ttf') format('truetype');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Failed-Italic';
-  src: url('fonts/Failed-Italic.ttf') format('truetype');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-
-
 *,
 *::before,
 *::after {
@@ -109,8 +42,14 @@ a {
   margin: 0 auto;
 }
 
+.h1,
+.h2 {
+  font-family: var(--font-head);
+  letter-spacing: 1.2px;
+}
+
 .topbar {
-  font-family: var(--font-brand);
+  font-family: var(--font-ui);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -168,6 +107,64 @@ a {
   margin: 20px 0 6px;
 }
 
+.action-stack {
+  display: grid;
+  gap: 12px;
+  width: min(360px, 100%);
+}
+
+.action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #1f242c;
+  background: #0f131b;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+}
+
+.action-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  color: #0b1510;
+}
+
+.action-card__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.action-card__label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.action-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.action-card--download .action-card__icon,
+.action-card--purchase .action-card__icon {
+  background: linear-gradient(135deg, #3c7cff, #8ab1ff);
+  color: #0b0d11;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), var(--accent-soft));
   color: #fff;
@@ -183,31 +180,42 @@ a {
 }
 
 .btn-success {
-  background: linear-gradient(135deg, #22c55e, #86efac);
-  color: #0b1510;
+  background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+  color: #fff;
   padding: 10px 16px;
   border-radius: 10px;
-  box-shadow: 0 10px 25px rgba(34, 197, 94, 0.25);
+  box-shadow: 0 10px 25px rgba(60, 124, 255, 0.25);
   border: 1px solid transparent;
   font-weight: 600;
 }
 
 .btn-success:hover {
-  box-shadow: 0 12px 28px rgba(34, 197, 94, 0.35);
+  box-shadow: 0 12px 28px rgba(60, 124, 255, 0.35);
 }
 
-.nav .btn-success {
-  color: #0b1510;
+.btn-icon {
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.btn-icon .material-symbols-rounded {
+  font-size: 20px;
+  line-height: 1;
 }
 
 .hero {
-  padding: 64px 0 48px;
+  padding: 64px 0 32px;
 }
 
 .hero__grid {
   display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(280px, 1fr) minmax(320px, 420px);
-  gap: 32px;
+  grid-template-columns: minmax(210px, 260px) minmax(320px, 1fr) minmax(260px, 340px);
+  column-gap: 44px;
+  row-gap: 32px;
   align-items: center;
 }
 
@@ -412,28 +420,62 @@ a {
 
 .purchase__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(280px, 360px) minmax(320px, 1fr) minmax(160px, 220px);
   gap: 28px;
-  align-items: center;
+  align-items: start;
+}
+
+.purchase__grid .how--embedded {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.purchase-card {
+  width: 100%;
+  max-width: 360px;
 }
 
 .purchase__aside {
   background: #141d2a;
   border-radius: 16px;
-  padding: 18px;
+  padding: 14px;
   border: 1px solid #1e2532;
   box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .purchase__aside img {
-  width: 100%;
+  width: min(160px, 100%);
   height: auto;
 }
 
 .info {
-  padding: 16px 0 10px;
+  padding: 12px 0 10px;
 }
 
+.app-preview {
+  padding-top: 8px;
+}
+
+.app-preview__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.app-preview__shot {
+  padding: 0;
+}
+
+.app-preview__shot img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid #1f2a37;
+}
 .info__head {
   text-align: center;
   margin-bottom: 24px;
@@ -668,34 +710,8 @@ a {
   margin-top: 30px;
 }
 
-.tech-card__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.code-tag {
-  background: #0b1624;
-  color: #7aa6ff;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid #1b2a3f;
-  font-size: 12px;
-}
-
-.tech-card__section {
-  margin-top: 14px;
-}
-
-.tech-card__label {
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
 .benefits {
-  padding: 40px 0 70px;
+  padding: 24px 0 36px;
 }
 
 .benefits__grid {
@@ -912,6 +928,15 @@ a {
   .purchase__grid {
     grid-template-columns: 1fr;
   }
+  .purchase-card {
+    max-width: none;
+  }
+  .purchase__aside img {
+    width: min(220px, 100%);
+  }
+  .app-preview__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 860px) {
@@ -941,3 +966,5 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+

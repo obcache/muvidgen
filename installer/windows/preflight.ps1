@@ -1,6 +1,6 @@
 Param(
   [string]$RendererPath,
-  [string]$RendererName = "muvidgen-renderer"
+  [string]$RendererName = "muvid-renderer"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +46,7 @@ if ($RendererPath) {
 
 $failed = $false
 
-Write-Host "MuvidGen Windows installer preflight" -ForegroundColor Cyan
+Write-Host "muvid Windows installer preflight" -ForegroundColor Cyan
 Write-Host "Repo root: $repoRoot"
 Write-Host ("Renderer exe: {0}" -f ($(if ($rendererExe) { $rendererExe } else { '(not found yet)' })))
 Write-Host "Electron output expected: $($paths.ElectronOut)"

@@ -35,18 +35,11 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
       const viewStart = Math.max(0, Math.min(1, scroll)) * Math.max(0, contentWidth - width);
 
       ctx.clearRect(0, 0, width, height);
-      // Background and stripes
+      // Background
       ctx.fillStyle = hasAudio ? '#0f121c' : '#1c1f26';
       ctx.fillRect(0, 0, width, height);
-      const stripeWidth = 10;
-      for (let x = -viewStart; x < contentWidth; x += stripeWidth) {
-        ctx.fillStyle = hasAudio
-          ? (x % (stripeWidth * 4) === 0 ? '#1f2740' : '#26314a')
-          : (x % (stripeWidth * 4) === 0 ? '#2a303d' : '#323a49');
-        ctx.fillRect(x + viewStart, 0, stripeWidth, height);
-      }
       ctx.fillStyle = hasAudio ? '#6a7bd6' : '#4f5564';
-      ctx.globalAlpha = hasAudio ? 0.25 : 0.15;
+      ctx.globalAlpha = hasAudio ? 0.18 : 0.12;
       ctx.fillRect(0, 0, width, height);
       ctx.globalAlpha = 1;
 
@@ -106,13 +99,7 @@ const OverviewWaveform = ({ duration, playhead, onSeek, peaks, hasAudio, zoom, s
       ctx.stroke();
       ctx.restore();
 
-      if (!hasAudio) {
-        ctx.fillStyle = '#e7b77a';
-        ctx.font = '22px Essen, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Click to select audio file', width / 2, height / 2);
-      }
+      // Empty-state messaging is rendered in the parent overlay.
     };
 
     draw();

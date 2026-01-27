@@ -1,16 +1,17 @@
 #define MyAppName "muvid"
-#define MyAppVersion "0.9.1"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "SorryNeedBoost, LLC"
 #define MyAppExeName "muvid.exe"
 #define MyAppId "8A7E0C0A-0000-4000-8000-0000muvid"
-#define SetupImageFile "E:\Production\Coding\muvidgen\client\public\ui\muvid_setupWizard_logo.png"
-#define IconFile "E:\Production\Coding\muvidgen\client\public\ui\muvid_noText_logo.ico"
-#define ShortcutImageFile "E:\Production\Coding\muvidgen\client\public\ui\muvid_noText_logo.png"
+#define SetupImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_setupWizard_logo.png"
+#define IconFile "E:\Production\Coding\muvid\client\public\ui\muvid_noText_logo.ico"
+#define ShortcutImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_noText_logo.png"
+#define SetupSmallImageFile "E:\Production\Coding\muvid\client\public\ui\muvid_logo.png"
 
 ; Adjust these source paths to your built app output locations
-#define AppBinDir "E:\Production\Coding\muvidgen\release\MuvidGen-win32-x64"             
-#define RendererBinDir "E:\Production\Coding\muvidgen\renderer\python\dist"
-#define VendorRedistDir "E:\Production\Coding\muvidgen\vendor\windows\redist"
+#define AppBinDir "E:\Production\Coding\muvid\release\muvid-win32-x64"             
+#define RendererBinDir "E:\Production\Coding\muvid\renderer\python\dist"
+#define VendorRedistDir "E:\Production\Coding\muvid\vendor\windows\redist"
 
 [Setup]
 AppId={#MyAppId}
@@ -29,7 +30,7 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 WizardStyle=modern dark windows11
 WizardImageFile={#SetupImageFile}
-WizardSmallImageFile={#SetupImageFile}
+WizardSmallImageFile={#SetupSmallImageFile}
 WizardImageStretch=yes
 WizardImageAlphaFormat=premultiplied
 SetupIconFile={#IconFile}

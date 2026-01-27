@@ -1,8 +1,8 @@
 {
-  "name": "muvidgen-license-tool",
+  "name": "muvid-license-tool",
   "version": "0.1.0",
   "private": true,
-  "description": "Offline license signer for MuvidGen (dev utility, not part of app build)",
+  "description": "Offline license signer for muvid (dev utility, not part of app build)",
   "type": "module",
   "scripts": {
     "sign": "node sign.js",

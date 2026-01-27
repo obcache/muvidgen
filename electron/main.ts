@@ -548,6 +548,7 @@ const buildAppMenu = () => {
         { type: 'separator' },
         { label: 'Render', accelerator: 'CmdOrCtrl+R', click: () => emitMenuAction('render:start') },
         { label: 'Cancel Render', click: () => emitMenuAction('render:cancel') },
+        { label: 'Clear Render Logs', click: () => emitMenuAction('render:clearLogs') },
         { type: 'separator' },
         { role: 'quit' as const },
       ],
@@ -574,12 +575,30 @@ const buildAppMenu = () => {
         { label: 'Zoom Timeline Out', accelerator: 'CmdOrCtrl+-', click: () => emitMenuAction('view:zoomOut') },
         { label: 'Zoom Timeline Fit', accelerator: 'CmdOrCtrl+0', click: () => emitMenuAction('view:zoomFit') },
         { type: 'separator' },
+        {
+          label: 'Theme',
+          submenu: [
+            { label: 'Auto', type: 'radio', checked: true, click: () => emitMenuAction('view:theme:auto') },
+            { label: 'Dark', type: 'radio', click: () => emitMenuAction('view:theme:dark') },
+            { label: 'Light', type: 'radio', click: () => emitMenuAction('view:theme:light') },
+          ],
+        },
+        { label: 'Toggle Logs', click: () => emitMenuAction('view:toggleLogs') },
+        { type: 'separator' },
         { role: 'togglefullscreen' as const },
       ],
     },
     {
       label: 'Help',
       submenu: [
+        {
+          label: 'Activation',
+          submenu: [
+            { label: 'Activation Info', click: () => emitMenuAction('help:activation') },
+            { label: 'Unlicense', click: () => emitMenuAction('help:unlicense') },
+          ],
+        },
+        { type: 'separator' },
         { label: 'About muvid', click: () => emitMenuAction('help:about') },
       ],
     },

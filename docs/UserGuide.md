@@ -137,7 +137,7 @@ Project > Render button or File > Render.
 Project > Cancel or File > Cancel Render.
 
 ### Output Location
-You are prompted for an output file name. A temporary `render.json` is created in a `.muvidgen` folder alongside the project.
+You are prompted for an output file name. A temporary `render.json` is created in a `.muvid` folder alongside the project.
 
 ## Media Library
 The Media Library lets you store reusable clips:

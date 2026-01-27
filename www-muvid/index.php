@@ -68,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>muvid License Portal</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -78,14 +79,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <span>muvid</span>
         </a>
         <nav class="nav">
-          <a class="btn-success" href="dist/muvid_setup.exe" download>Download</a>
           <a href="#home">Home</a>
           <a href="#overview">Overview</a>
           <a href="#usage">Usage</a>
           <a href="#gallery">Gallery</a>
-          <a href="#purchase">Purchase</a>
           <a href="#support">Support</a>
-          <a class="btn-primary" href="#purchase">Purchase</a>
+          <a class="btn-success btn-icon" href="dist/muvid_setup.exe" download aria-label="Download">
+            <span class="material-symbols-rounded" aria-hidden="true">download</span>
+          </a>
+          <a class="btn-primary btn-icon" href="#purchase" aria-label="Purchase">
+            <span class="material-symbols-rounded" aria-hidden="true">shopping_cart</span>
+          </a>
         </nav>
       </div>
     </header>
@@ -94,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <section class="hero" id="home">
         <div class="container hero__grid">
           <div class="hero__logo-panel">
-            <img src="assets/muvid_setupWizard_logo.png" alt="muvid slogan logo" />
+            <img src="assets/muvid_slogan.png" alt="muvid slogan logo" />
           </div>
 
           <div class="hero__copy">
@@ -108,6 +112,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               a polished, ready-to-render timeline.
             </p>
             <div class="hero__actions">
+              <div class="action-stack">
+                <a class="action-card action-card--download" href="dist/muvid_setup.exe" download>
+                  <span class="action-card__icon material-symbols-rounded" aria-hidden="true">download</span>
+                  <span class="action-card__text">
+                    <span class="action-card__label">muvid v1.0.0 for Windows</span>
+                    <span class="action-card__title">Free Trial Download</span>
+                  </span>
+                </a>
+                <a class="action-card action-card--purchase" href="#purchase">
+                  <span class="action-card__icon material-symbols-rounded" aria-hidden="true">shopping_cart</span>
+                  <span class="action-card__text">
+                    <span class="action-card__label">muvid 1pc perpetual license</span>
+                    <span class="action-card__title">Buy License $99</span>
+                  </span>
+                </a>
+              </div>
             </div>
             <p class="fineprint fineprint--callout">
               <a href="dist/muvid_setup.exe" download>Download</a> a FREE trial version of muvid.<br />
@@ -125,10 +145,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <li>Landscape or portrait renders</li>
                 <li>ffmpeg-backed rendering pipeline</li>
               </ul>
-            </div>
-            <div class="hero__card-actions">
-              <a class="btn-primary" href="#purchase">Purchase</a>
-              <a class="btn-success" href="dist/muvid_setup.exe" download>Download</a>
             </div>
           </div>
         </div>
@@ -162,6 +178,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <li>Save As: File &gt; Save As...</li>
                 <li>Open: File &gt; Open Project...</li>
               </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="info app-preview" id="app-preview">
+        <div class="container">
+          <div class="info__head">
+            <h2>App Preview</h2>
+            <p class="subhead">A look at muvid in action.</p>
+          </div>
+          <div class="app-preview__grid">
+            <div class="app-preview__shot">
+              <img src="assets/app-screenshot-1.png" alt="muvid interface showing timeline, layers, and preview" loading="lazy" />
+          </div>
+          <div class="app-preview__shot">
+              <img src="assets/app-screenshot-2.png" alt="muvid interface with media timeline and layer controls" loading="lazy" />
             </div>
           </div>
         </div>
@@ -253,7 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   <ul class="info-list">
                     <li>Project &gt; Render or File &gt; Render</li>
                     <li>Cancel anytime from Project or File menus</li>
-                    <li>Temporary render.json stored in .muvidgen</li>
+                    <li>Temporary render.json stored in .muvid</li>
                     <li>Output file chosen at render start</li>
                   </ul>
                 </div>
@@ -271,11 +304,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           </div>
           <div class="gallery__grid">
             <article class="gallery__item">
-              <div class="gallery__thumb gallery__thumb--image">
-                <img src="assets/app-screenshot-1.png" alt="muvid application interface preview" loading="lazy" />
+              <div class="gallery__thumb">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 5l11 7-11 7V5z" />
+                </svg>
               </div>
-              <h3>App Preview</h3>
-              <p class="muted">Timeline, layer controls, and live preview in action.</p>
+              <h3>Neon Skyline</h3>
+              <p class="muted">High-contrast bars with fast-paced cuts.</p>
             </article>
             <article class="gallery__item">
               <div class="gallery__thumb">
@@ -425,62 +460,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p class="purchase__hint muted">Scroll down for activation steps.</p>
               </form>
             </div>
-            <div class="purchase__aside">
-              <img src="assets/muvid_setupWizard_logo.png" alt="muvid slogan logo" />
-            </div>
-          </div>
+            <div class="how how--embedded" id="how">
+              <h2>How to Activate Your License <span class="anchor-cue">↓</span></h2>
+              <p class="subhead">Follow these simple steps to activate your license after purchase</p>
 
-          <div class="how how--embedded" id="how">
-            <h2>How to Activate Your License <span class="anchor-cue">↓</span></h2>
-            <p class="subhead">Follow these simple steps to activate your license after purchase</p>
-
-            <div class="steps">
-              <div class="step">
-                <div class="step__num">1</div>
-                <div>
-                  <h3>Receive Your License Key</h3>
-                  <p>After purchase, you will receive an email containing your unique license key. It will look like this:</p>
-                  <div class="code-block">
-                    eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSm9obiBEb2UiLCJlbWFpbCI6ImpvaG5AY29tY...signature
+              <div class="steps">
+                <div class="step">
+                  <div class="step__num">1</div>
+                  <div>
+                    <h3>Receive Your License Key</h3>
+                    <p>After purchase, you will receive an email containing your unique license key. It will look like this:</p>
+                    <div class="code-block">
+                      eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSm9obiBEb2UiLCJlbWFpbCI6ImpvaG5AY29tY...signature
+                    </div>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step__num">2</div>
+                  <div>
+                    <h3>Open the Application</h3>
+                    <p>Launch your trial version of the application. You will see a license activation prompt.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step__num">3</div>
+                  <div>
+                    <h3>Paste Your License Key</h3>
+                    <p>Copy the license key from your email and paste it into the activation modal. The application will verify it offline using the embedded public key.</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <div class="step__num">4</div>
+                  <div>
+                    <h3>Start Using Full Version</h3>
+                    <p>Once verified, all features will be unlocked immediately. No internet connection required for future use.</p>
                   </div>
                 </div>
               </div>
-              <div class="step">
-                <div class="step__num">2</div>
-                <div>
-                  <h3>Open the Application</h3>
-                  <p>Launch your trial version of the application. You will see a license activation prompt.</p>
-                </div>
-              </div>
-              <div class="step">
-                <div class="step__num">3</div>
-                <div>
-                  <h3>Paste Your License Key</h3>
-                  <p>Copy the license key from your email and paste it into the activation modal. The application will verify it offline using the embedded public key.</p>
-                </div>
-              </div>
-              <div class="step">
-                <div class="step__num">4</div>
-                <div>
-                  <h3>Start Using Full Version</h3>
-                  <p>Once verified, all features will be unlocked immediately. No internet connection required for future use.</p>
-                </div>
-              </div>
             </div>
-
-            <div class="card tech-card" id="features">
-              <div class="tech-card__title">
-                <span class="code-tag">&lt;/&gt;</span>
-                Technical Details
-              </div>
-              <p class="muted">For developers: How license verification works</p>
-              <div class="tech-card__section">
-                <div class="tech-card__label">Verification</div>
-                <p class="muted">
-                  The application verifies licenses offline using the embedded public key (LICENSE_PUBLIC_KEY_JWK).
-                  The private key remains secure on your server and is never distributed.
-                </p>
-              </div>
+            <div class="purchase__aside">
+              <img src="assets/muvid_setupWizard_logo.png" alt="muvid slogan logo" />
             </div>
           </div>
         </div>
@@ -545,4 +564,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="js/activation.1d758320.js"></script>
   </body>
 </html>
-

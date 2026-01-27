@@ -1,4 +1,4 @@
-# MuvidGen License Tool (Offline signer)
+# muvid License Tool (Offline signer)
 
 Dev-only helper to mint offline license tokens. Not used in the app build.
 

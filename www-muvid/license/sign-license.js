@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline license helper for Muvidgen.
+ * Offline license helper for muvid.
  *
  * Examples:
  *   # Generate new keypair (keep privateJwk secret)

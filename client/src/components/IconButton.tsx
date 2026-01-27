@@ -1,7 +1,8 @@
 import React from 'react';
+import MaterialIcon from './MaterialIcon';
 
 type IconButtonProps = {
-  icon: string; // relative to public/, e.g. 'ui/play.svg'
+  icon: string; // Material Symbols name
   alt: string;
   title?: string;
   size?: number; // px
@@ -11,7 +12,6 @@ type IconButtonProps = {
 };
 
 const IconButton: React.FC<IconButtonProps> = ({ icon, alt, title, size = 56, pressed, disabled, onClick }) => {
-  const href = new URL(icon, document.baseURI).toString();
   return (
     <button
       type="button"
@@ -21,14 +21,11 @@ const IconButton: React.FC<IconButtonProps> = ({ icon, alt, title, size = 56, pr
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      style={{
-        width: size,
-        height: size,
-        backgroundImage: `url("${href}")`,
-      }}
-    />
+      style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <MaterialIcon name={icon} size={Math.max(16, Math.round(size * 0.45))} ariaHidden />
+    </button>
   );
 };
 
 export default IconButton;
-

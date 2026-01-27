@@ -25,7 +25,7 @@
             "type": "chrome",
             "request": "launch",
             "name": "Open index.html",
-            "file": "e:\\Production\\Coding\\muvidgen\\www-muvid\\index.php"
+            "file": "e:\\Production\\Coding\\muvid\\www-muvid\\index.php"
         }
     ]
 }
